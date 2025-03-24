@@ -27,12 +27,13 @@ from config import GNSS_CONFIG, STORAGE_CONFIG, APP_CONFIG
 class GNSS:
     """Class for processing GNSS data and saving in GPX and NMEA formats"""
     
-    def __init__(self, sync_manager=None):
+    def __init__(self, sync_manager=None, session_dir=None):
         """
         Initialize GNSS class
         
         Args:
             sync_manager: Instance of sync manager (optional)
+            session_dir: Session directory for storing data
         """
         self.logger = logging.getLogger('GNSS')
         self.config = GNSS_CONFIG
@@ -47,6 +48,7 @@ class GNSS:
         self.current_position = None
         self.current_time = None
         self.sync_manager = sync_manager
+        self.session_dir = session_dir
         
         # Latest GGA, RMC, GSA data
         self.last_gga = None
@@ -73,11 +75,27 @@ class GNSS:
     def _init_directories(self):
         """Initialize storage directories"""
         base_path = self.storage_config['base_path']
-        gnss_dir = os.path.join(base_path, self.storage_config['gnss_dir'])
+        if not os.path.exists(base_path):
+            os.makedirs(base_path)
+            self.logger.info(f"Created directory: {base_path}")
         
-        if not os.path.exists(gnss_dir):
-            os.makedirs(gnss_dir)
-            self.logger.info(f"Created directory: {gnss_dir}")
+        # If session directory is provided, use it
+        if self.session_dir:
+            if not os.path.exists(self.session_dir):
+                os.makedirs(self.session_dir)
+                self.logger.info(f"Created session directory: {self.session_dir}")
+    
+    def set_session_dir(self, session_dir):
+        """Set the session directory"""
+        self.session_dir = session_dir
+        if not os.path.exists(self.session_dir):
+            os.makedirs(self.session_dir)
+            self.logger.info(f"Created session directory: {self.session_dir}")
+        
+        # If already running, reinitialize files with new session directory
+        if self.running:
+            self._init_gpx()
+            self._init_nmea_file()
     
     def open(self):
         """Open serial port"""
@@ -105,6 +123,21 @@ class GNSS:
         if not self.serial:
             if not self.open():
                 return
+        
+        # Create session directory if it doesn't exist yet
+        if not self.session_dir:
+            timestamp = datetime.now().strftime(self.storage_config['timestamp_format'])
+            self.session_dir = os.path.join(
+                self.storage_config['base_path'],
+                timestamp
+            )
+            if not os.path.exists(self.session_dir):
+                os.makedirs(self.session_dir)
+                self.logger.info(f"Created session directory: {self.session_dir}")
+            
+            # Notify sync manager of new session directory
+            if self.sync_manager:
+                self.sync_manager.set_session_dir(self.session_dir)
         
         self._init_gpx()
         self._init_nmea_file()
@@ -161,49 +194,18 @@ class GNSS:
         self.gpx_segment = gpxpy.gpx.GPXTrackSegment()
         self.gpx_track.segments.append(self.gpx_segment)
         
-        # Set file path
-        timestamp = datetime.now().strftime(self.storage_config['timestamp_format'])
-        
-        if self.storage_config['use_timestamp_subdir']:
-            subdir = datetime.now().strftime("%Y%m%d")
-            gnss_dir = os.path.join(
-                self.storage_config['base_path'],
-                self.storage_config['gnss_dir'],
-                subdir
-            )
-            if not os.path.exists(gnss_dir):
-                os.makedirs(gnss_dir)
-        else:
-            gnss_dir = os.path.join(
-                self.storage_config['base_path'],
-                self.storage_config['gnss_dir']
-            )
-        
-        self.current_gpx_path = os.path.join(gnss_dir, f"track_{timestamp}{self.config['gpx_extension']}")
-        self.logger.info(f"Initialized GPX track: {self.current_gpx_path}")
+        if self.session_dir:
+            gpx_filename = f"{self.storage_config['filename_prefix']}_track{self.config['gpx_extension']}"
+            self.current_gpx_path = os.path.join(self.session_dir, gpx_filename)
+            self.logger.info(f"Initialized GPX track: {self.current_gpx_path}")
     
     def _init_nmea_file(self):
         """Initialize NMEA file"""
-        timestamp = datetime.now().strftime(self.storage_config['timestamp_format'])
-        
-        if self.storage_config['use_timestamp_subdir']:
-            subdir = datetime.now().strftime("%Y%m%d")
-            gnss_dir = os.path.join(
-                self.storage_config['base_path'],
-                self.storage_config['gnss_dir'],
-                subdir
-            )
-            if not os.path.exists(gnss_dir):
-                os.makedirs(gnss_dir)
-        else:
-            gnss_dir = os.path.join(
-                self.storage_config['base_path'],
-                self.storage_config['gnss_dir']
-            )
-        
-        self.current_nmea_path = os.path.join(gnss_dir, f"nmea_{timestamp}{self.config['nmea_extension']}")
-        self.nmea_file = open(self.current_nmea_path, "w")
-        self.logger.info(f"Initialized NMEA file: {self.current_nmea_path}")
+        if self.session_dir:
+            nmea_filename = f"{self.storage_config['filename_prefix']}_nmea{self.config['nmea_extension']}"
+            self.current_nmea_path = os.path.join(self.session_dir, nmea_filename)
+            self.nmea_file = open(self.current_nmea_path, "w")
+            self.logger.info(f"Initialized NMEA file: {self.current_nmea_path}")
     
     def _save_gpx(self):
         """Save GPX file"""
@@ -387,6 +389,9 @@ class GNSS:
             
             self.logger.info(f"Added waypoint {name} at {self.current_position}")
             
+            # Save GPX file to update waypoints
+            self._save_gpx()
+            
             return waypoint
         except Exception as e:
             self.logger.error(f"Error adding waypoint: {str(e)}")
@@ -397,3 +402,7 @@ class GNSS:
         if self.last_gga and self.last_gga.gps_qual > 0:
             return True
         return False
+    
+    def get_session_dir(self):
+        """Get the current session directory"""
+        return self.session_dir
