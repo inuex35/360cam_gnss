@@ -11,205 +11,350 @@
 # License, or (at your option) any later version.
 #
 
-import os
-import sys
-import time
 import cv2
-import logging
+import time
+import sys
+import os
 import signal
-import argparse
+import logging
 from datetime import datetime
 
-# Import local modules
+# Import our modules
 from config import CAMERA_CONFIG, GNSS_CONFIG, STORAGE_CONFIG, APP_CONFIG
 from camera import Camera
 from gnss import GNSS
 from sync import SyncManager
 import utils
 
-# Global variables for signal handling
-running = True
-
-def signal_handler(sig, frame):
-    """Signal handler for Ctrl+C"""
-    global running
-    logging.info("Signal received, stopping...")
-    running = False
-
-def parse_args():
-    """Parse command line arguments"""
-    parser = argparse.ArgumentParser(description='360cam_gnss - 360-degree camera and GNSS data collection system')
+class MainApplication:
+    """Main application class for 360cam_gnss"""
     
-    parser.add_argument('--no-preview', dest='preview', action='store_false',
-                        help='Disable camera preview window')
-    parser.add_argument('--no-pps', dest='pps', action='store_false',
-                        help='Disable PPS synchronization')
-    parser.add_argument('--record', dest='record', action='store_true',
-                        help='Start recording immediately')
-    parser.add_argument('--log-level', dest='log_level', default=APP_CONFIG['log_level'],
-                        choices=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'],
-                        help='Set logging level')
-    parser.add_argument('--cam-id', dest='camera_id', type=int, default=CAMERA_CONFIG['device_id'],
-                        help='Camera device ID')
-    parser.add_argument('--gnss-port', dest='gnss_port', default=GNSS_CONFIG['port'],
-                        help='GNSS serial port')
+    def __init__(self):
+        """Initialize the application"""
+        # Setup logging
+        self.logger = utils.setup_logging()
+        self.logger.info("Initializing 360cam_gnss application")
+        
+        # Set up signal handlers for graceful shutdown
+        signal.signal(signal.SIGINT, self.signal_handler)
+        signal.signal(signal.SIGTERM, self.signal_handler)
+        
+        # Check dependencies
+        if not utils.check_dependencies():
+            self.logger.error("Missing dependencies. Exiting.")
+            sys.exit(1)
+        
+        # Check storage space
+        if not utils.check_storage_space():
+            self.logger.warning("Low storage space. Some data may not be saved.")
+        
+        # Backup configuration
+        utils.backup_config()
+        
+        # Initialize components
+        self.logger.info("Initializing system components")
+        
+        # Create sync manager first
+        self.sync_manager = SyncManager()
+        
+        # Create camera and GNSS modules with sync manager
+        self.camera = Camera(sync_manager=self.sync_manager)
+        self.gnss = GNSS(sync_manager=self.sync_manager)
+        
+        # State variables
+        self.running = False
+        self.recording = False
+        self.last_gnss_update = time.time()
+        self.show_info = True
+    
+    def start(self):
+        """Start the application"""
+        self.logger.info("Starting 360cam_gnss application")
+        
+        try:
+            # Start components in order
+            if APP_CONFIG['enable_pps_sync']:
+                self.logger.info("Starting PPS synchronization")
+                self.sync_manager.start()
+                time.sleep(1)  # Allow PPS sync to initialize
+            
+            self.logger.info("Starting GNSS module")
+            self.gnss.start()
+            time.sleep(1)  # Allow GNSS to initialize
+            
+            self.logger.info("Starting camera module")
+            self.camera.start()
+            
+            self.running = True
+            
+            # Main application loop
+            self.main_loop()
+            
+        except Exception as e:
+            self.logger.error(f"Error in application startup: {str(e)}")
+            self.stop()
+    
+    def stop(self):
+        """Stop the application"""
+        self.logger.info("Stopping 360cam_gnss application")
+        
+        # Stop recording if active
+        if self.recording:
+            self.camera.stop_recording()
+            self.recording = False
+        
+        # Stop components in reverse order
+        if self.camera:
+            self.camera.stop()
+        
+        if self.gnss:
+            self.gnss.stop()
+        
+        if self.sync_manager:
+            self.sync_manager.stop()
+        
+        self.running = False
+        
+        self.logger.info("Application stopped")
+    
+    def signal_handler(self, sig, frame):
+        """Handle signals for graceful shutdown"""
+        self.logger.info(f"Received signal {sig}, shutting down")
+        self.stop()
+        sys.exit(0)
+    
+    def main_loop(self):
+        """Main application loop"""
+        self.logger.info("Entering main loop")
+        
+        try:
+            while self.running:
+                # Get camera preview frame
+                if APP_CONFIG['enable_preview'] and self.camera:
+                    frame = self.camera.get_preview_frame()
+                    
+                    if frame is not None:
+                        # Add GNSS info overlay
+                        if self.show_info:
+                            self.add_info_overlay(frame)
                         
-    return parser.parse_args()
-
-def main():
-    # Parse command line arguments
-    args = parse_args()
-    
-    # Set up logging
-    log_file = utils.setup_logging(args.log_level)
-    logging.info(f"Starting 360cam_gnss")
-    
-    # Register signal handler
-    signal.signal(signal.SIGINT, signal_handler)
-    signal.signal(signal.SIGTERM, signal_handler)
-    
-    # Update config with command line arguments
-    APP_CONFIG['enable_preview'] = args.preview
-    APP_CONFIG['enable_pps_sync'] = args.pps
-    CAMERA_CONFIG['device_id'] = args.camera_id
-    GNSS_CONFIG['port'] = args.gnss_port
-    
-    # Log system information
-    system_info = utils.get_system_info()
-    logging.info(f"System Info: CPU: {system_info['cpu']['usage_percent']}%, "
-                f"Temp: {system_info['temperature_c']}°C, "
-                f"Free Disk: {system_info['disk']['free_gb']:.1f}GB")
-    
-    # Initialize synchronization manager
-    sync_manager = None
-    if APP_CONFIG['enable_pps_sync']:
-        logging.info(f"Initializing PPS synchronization on GPIO pin {GNSS_CONFIG['pps_gpio_pin']}")
-        sync_manager = SyncManager()
-        sync_manager.start()
-    
-    # Initialize GNSS
-    logging.info(f"Initializing GNSS module on port {GNSS_CONFIG['port']}")
-    gnss = GNSS(sync_manager)
-    gnss.start()
-    
-    # Initialize camera
-    logging.info(f"Initializing 360-degree camera (ID: {CAMERA_CONFIG['device_id']})")
-    camera = Camera(sync_manager)
-    camera.start()
-    
-    # Auto-start recording if requested
-    if args.record and camera.running:
-        logging.info("Auto-starting recording")
-        camera.start_recording()
-    
-    # Main loop
-    try:
-        last_status_time = time.time()
-        recording_state = camera.recording
-        
-        while running:
-            # Get frame for preview
-            if APP_CONFIG['enable_preview'] and camera.running:
-                frame = camera.get_preview_frame()
+                        # Display frame
+                        cv2.imshow('360cam GNSS', frame)
                 
-                if frame is not None:
-                    # Add status overlay
-                    frame = utils.create_status_overlay(frame, gnss, sync_manager)
-                    
-                    # Show the frame
-                    cv2.imshow('360cam_gnss', frame)
-                    
-                    # Process key presses
-                    key = cv2.waitKey(1) & 0xFF
-                    
-                    # Exit on ESC or 'q'
-                    if key == 27 or key == ord(APP_CONFIG['exit_key']):
-                        logging.info("Exit key pressed")
-                        break
-                    
-                    # Toggle recording on 'r'
-                    elif key == ord('r'):
-                        if camera.recording:
-                            camera.stop_recording()
-                            logging.info("Recording stopped by user")
-                        else:
-                            camera.start_recording()
-                            logging.info("Recording started by user")
-                    
-                    # Capture photo on 'c'
-                    elif key == ord('c'):
-                        photo_path = camera.capture_photo()
-                        if photo_path:
-                            logging.info(f"Photo captured: {photo_path}")
-                    
-                    # Add waypoint on 'w'
-                    elif key == ord('w'):
-                        if gnss and gnss.get_current_position():
-                            waypoint_name = f"WP_{datetime.now().strftime('%H%M%S')}"
-                            waypoint_id = gnss.add_waypoint(waypoint_name)
-                            if waypoint_id:
-                                logging.info(f"Waypoint added: {waypoint_id}")
-            
-            # Log periodic status (every 60 seconds)
-            current_time = time.time()
-            if current_time - last_status_time > 60:
-                last_status_time = current_time
+                # Check for keypress
+                key = cv2.waitKey(1) & 0xFF
                 
-                # Log system status
-                system_info = utils.get_system_info()
-                logging.info(f"System Status: CPU: {system_info['cpu']['usage_percent']}%, "
-                            f"Temp: {system_info['temperature_c']}°C, "
-                            f"Free Disk: {system_info['disk']['free_gb']:.1f}GB")
+                # Process keypresses
+                if key == ord(APP_CONFIG['exit_key']):  # Exit
+                    self.logger.info("Exit key pressed, shutting down")
+                    break
+                elif key == ord('r'):  # Start/stop recording
+                    self.toggle_recording()
+                elif key == ord('p'):  # Capture photo
+                    self.capture_photo()
+                elif key == ord('i'):  # Toggle info display
+                    self.show_info = not self.show_info
+                    self.logger.info(f"Info display: {'on' if self.show_info else 'off'}")
+                elif key == ord('w'):  # Add waypoint
+                    self.add_waypoint()
+                elif key == ord('s'):  # System info
+                    self.show_system_info()
                 
-                # Log GNSS status
-                if gnss and gnss.get_current_position():
-                    lat, lon, alt = gnss.get_current_position()
-                    fix_info = gnss.get_fix_info()
-                    logging.info(f"GNSS Status: Pos: {lat:.6f}, {lon:.6f}, Alt: {alt:.1f}m, "
-                                f"Sats: {fix_info['satellites']}, Quality: {fix_info['quality']}")
-                else:
-                    logging.info("GNSS Status: No Fix")
-                
-                # Log PPS status
-                if sync_manager and sync_manager.get_last_pps_time():
-                    pps_time = sync_manager.get_last_pps_time().strftime('%H:%M:%S.%f')[:-3]
-                    stability = sync_manager.get_pps_stability()
-                    logging.info(f"PPS Status: Last: {pps_time}, Stability: {stability:.2f}")
-            
-            # Sleep to prevent high CPU usage
-            time.sleep(0.01)
-            
-            # Check if recording state has changed
-            if camera.recording != recording_state:
-                recording_state = camera.recording
-                if recording_state:
-                    logging.info(f"Recording started: {camera.current_video_path}")
-                else:
-                    logging.info("Recording stopped")
-    
-    except KeyboardInterrupt:
-        logging.info("Keyboard interrupt received")
-    
-    except Exception as e:
-        logging.exception(f"Unexpected error: {str(e)}")
-    
-    finally:
-        # Clean up
-        logging.info("Cleaning up...")
+                # Sleep to reduce CPU usage
+                time.sleep(0.01)
         
-        if camera.recording:
-            camera.stop_recording()
-        
-        camera.stop()
-        gnss.stop()
-        
-        if sync_manager:
-            sync_manager.stop()
-        
-        if APP_CONFIG['enable_preview']:
+        except Exception as e:
+            self.logger.error(f"Error in main loop: {str(e)}")
+        finally:
+            self.stop()
             cv2.destroyAllWindows()
+    
+    def toggle_recording(self):
+        """Toggle video recording"""
+        if not self.recording:
+            self.camera.start_recording()
+            self.recording = True
+            self.logger.info("Started recording")
+        else:
+            self.camera.stop_recording()
+            self.recording = False
+            self.logger.info("Stopped recording")
+    
+    def capture_photo(self):
+        """Capture a photo"""
+        photo_path = self.camera.capture_photo()
+        if photo_path:
+            self.logger.info(f"Captured photo: {photo_path}")
+    
+    def add_waypoint(self):
+        """Add a waypoint at current position"""
+        if self.gnss.is_fix_valid():
+            name = f"WP_{datetime.now().strftime('%H%M%S')}"
+            waypoint = self.gnss.add_waypoint(name)
+            if waypoint:
+                self.logger.info(f"Added waypoint: {name}")
+        else:
+            self.logger.warning("Cannot add waypoint: No valid GNSS fix")
+    
+    def show_system_info(self):
+        """Show system information"""
+        info = utils.get_system_info()
+        self.logger.info(f"System info: {info}")
+    
+    def add_info_overlay(self, frame):
+        """Add information overlay to frame"""
+        # Get current time
+        current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
-        logging.info("360cam_gnss stopped")
+        # Add timestamp
+        cv2.putText(
+            frame,
+            current_time,
+            (10, 30),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.7,
+            (0, 255, 0),
+            2
+        )
+        
+        # Add recording status
+        if self.recording:
+            cv2.putText(
+                frame,
+                "REC",
+                (frame.shape[1] - 80, 30),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.7,
+                (0, 0, 255),
+                2
+            )
+            
+            # Add recording indicator (red circle)
+            cv2.circle(
+                frame,
+                (frame.shape[1] - 100, 25),
+                10,
+                (0, 0, 255),
+                -1
+            )
+        
+        # Add PPS info if available
+        if self.sync_manager and APP_CONFIG['enable_pps_sync']:
+            pps_time = self.sync_manager.get_last_pps_time()
+            pps_count = self.sync_manager.get_pps_count()
+            
+            if pps_time:
+                cv2.putText(
+                    frame,
+                    f"PPS: {pps_count}",
+                    (10, 60),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.7,
+                    (0, 255, 0),
+                    2
+                )
+        
+        # Add GNSS info if available
+        if self.gnss:
+            position = self.gnss.get_current_position()
+            
+            if position:
+                # Only update every second to keep display readable
+                if time.time() - self.last_gnss_update > 1.0:
+                    self.last_gnss_update = time.time()
+                
+                # Format coordinates
+                lat_str = f"{position[0]:.6f}°"
+                lon_str = f"{position[1]:.6f}°"
+                
+                # Add to frame
+                cv2.putText(
+                    frame,
+                    f"Lat: {lat_str} Lon: {lon_str}",
+                    (10, 90),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.7,
+                    (0, 255, 0),
+                    2
+                )
+                
+                # Add altitude if available
+                if len(position) > 2 and position[2]:
+                    alt_str = f"Alt: {position[2]:.1f}m"
+                    cv2.putText(
+                        frame,
+                        alt_str,
+                        (10, 120),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.7,
+                        (0, 255, 0),
+                        2
+                    )
+                
+                # Add speed and course if available
+                speed_course = self.gnss.get_speed_course()
+                if speed_course and speed_course['speed']:
+                    speed_str = f"Speed: {float(speed_course['speed']) * 1.852:.1f} km/h"  # Convert knots to km/h
+                    cv2.putText(
+                        frame,
+                        speed_str,
+                        (10, 150),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.7,
+                        (0, 255, 0),
+                        2
+                    )
+                
+                # Add fix quality if available
+                fix_info = self.gnss.get_fix_info()
+                if fix_info:
+                    fix_quality = int(fix_info['fix_quality'])
+                    num_sats = int(fix_info['num_satellites']) if fix_info['num_satellites'] else 0
+                    
+                    quality_str = "Fix: "
+                    if fix_quality == 0:
+                        quality_str += "Invalid"
+                        color = (0, 0, 255)  # Red for invalid
+                    elif fix_quality == 1:
+                        quality_str += "GPS"
+                        color = (0, 255, 255)  # Yellow for basic GPS
+                    elif fix_quality == 2:
+                        quality_str += "DGPS"
+                        color = (0, 255, 0)  # Green for DGPS
+                    elif fix_quality == 4:
+                        quality_str += "RTK"
+                        color = (0, 255, 0)  # Green for RTK
+                    elif fix_quality == 5:
+                        quality_str += "Float RTK"
+                        color = (0, 255, 0)  # Green for Float RTK
+                    else:
+                        quality_str += str(fix_quality)
+                        color = (0, 255, 255)  # Yellow for other
+                    
+                    quality_str += f" ({num_sats} sats)"
+                    
+                    cv2.putText(
+                        frame,
+                        quality_str,
+                        (10, 180),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.7,
+                        color,
+                        2
+                    )
+        
+        # Add help text
+        cv2.putText(
+            frame,
+            "r: record | p: photo | w: waypoint | i: info | s: system | q: quit",
+            (10, frame.shape[0] - 20),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.5,
+            (255, 255, 255),
+            1
+        )
 
+# Main entry point
 if __name__ == "__main__":
-    main()
+    app = MainApplication()
+    app.start()
