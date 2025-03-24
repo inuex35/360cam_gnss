@@ -1,0 +1,7 @@
+opencv-python>=4.5.0
+numpy>=1.19.0
+pyserial>=3.5
+pynmea2>=1.18.0
+gpxpy>=1.4.2
+RPi.GPIO>=0.7.0
+psutil>=5.8.0
