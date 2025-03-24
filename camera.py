@@ -22,21 +22,21 @@ import numpy as np
 from config import CAMERA_CONFIG, STORAGE_CONFIG, APP_CONFIG
 
 class Camera:
-    """360度カメラのキャプチャと録画を管理するクラス"""
+    """Class for managing 360-degree camera capture and recording"""
     
     def __init__(self, sync_manager=None):
         """
-        カメラクラスの初期化
+        Initialize the Camera class
         
         Args:
-            sync_manager: 同期マネージャのインスタンス（オプション）
+            sync_manager: Instance of sync manager (optional)
         """
         self.logger = logging.getLogger('Camera')
         self.config = CAMERA_CONFIG
         self.storage_config = STORAGE_CONFIG
         self.app_config = APP_CONFIG
         
-        # カメラキャプチャの初期化
+        # Initialize camera capture
         self.device_id = self.config['device_id']
         self.cap = None
         self.frame = None
@@ -48,15 +48,15 @@ class Camera:
         self.current_video_path = None
         self.sync_manager = sync_manager
         
-        # スレッド関連
+        # Thread-related
         self.capture_thread = None
         self.stop_event = Event()
         
-        # 保存ディレクトリの初期化
+        # Initialize storage directories
         self._init_directories()
     
     def _init_directories(self):
-        """保存ディレクトリの初期化"""
+        """Initialize storage directories"""
         base_path = self.storage_config['base_path']
         video_dir = os.path.join(base_path, self.storage_config['video_dir'])
         photo_dir = os.path.join(base_path, self.storage_config['photo_dir'])
@@ -64,10 +64,10 @@ class Camera:
         for directory in [base_path, video_dir, photo_dir]:
             if not os.path.exists(directory):
                 os.makedirs(directory)
-                self.logger.info(f"ディレクトリを作成しました: {directory}")
+                self.logger.info(f"Created directory: {directory}")
     
     def open(self):
-        """カメラを開く"""
+        """Open camera"""
         try:
             self.cap = cv2.VideoCapture(self.device_id)
             self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.config['width'])
@@ -75,23 +75,23 @@ class Camera:
             self.cap.set(cv2.CAP_PROP_FPS, self.config['fps'])
             
             if not self.cap.isOpened():
-                self.logger.error(f"カメラID {self.device_id} を開けませんでした")
+                self.logger.error(f"Could not open camera ID {self.device_id}")
                 return False
             
             actual_width = self.cap.get(cv2.CAP_PROP_FRAME_WIDTH)
             actual_height = self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
             actual_fps = self.cap.get(cv2.CAP_PROP_FPS)
             
-            self.logger.info(f"カメラを開きました: {actual_width}x{actual_height} @ {actual_fps}fps")
+            self.logger.info(f"Opened camera: {actual_width}x{actual_height} @ {actual_fps}fps")
             return True
         except Exception as e:
-            self.logger.error(f"カメラ初期化エラー: {str(e)}")
+            self.logger.error(f"Camera initialization error: {str(e)}")
             return False
     
     def start(self):
-        """カメラのキャプチャを開始"""
+        """Start camera capture"""
         if self.running:
-            self.logger.warning("カメラは既に実行中です")
+            self.logger.warning("Camera is already running")
             return
         
         if not self.cap or not self.cap.isOpened():
@@ -103,10 +103,10 @@ class Camera:
         self.capture_thread = Thread(target=self._capture_loop)
         self.capture_thread.daemon = True
         self.capture_thread.start()
-        self.logger.info("カメラキャプチャを開始しました")
+        self.logger.info("Started camera capture")
     
     def stop(self):
-        """カメラのキャプチャを停止"""
+        """Stop camera capture"""
         self.stop_event.set()
         if self.recording:
             self.stop_recording()
@@ -119,10 +119,10 @@ class Camera:
             self.cap = None
         
         self.running = False
-        self.logger.info("カメラキャプチャを停止しました")
+        self.logger.info("Stopped camera capture")
     
     def _capture_loop(self):
-        """カメラからのフレーム取得ループ"""
+        """Frame capture loop from camera"""
         last_frame_time = time.time()
         
         while not self.stop_event.is_set():
@@ -131,17 +131,17 @@ class Camera:
                 current_time = time.time()
                 
                 if not ret:
-                    self.logger.warning("フレーム取得に失敗しました")
+                    self.logger.warning("Failed to get frame")
                     time.sleep(0.1)
                     continue
                 
                 self.frame = frame
                 self.frame_count += 1
                 
-                # タイムスタンプを画像に追加
+                # Add timestamp to image
                 timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
                 
-                # PPSの同期情報があれば追加
+                # Add PPS sync info if available
                 if self.sync_manager and self.app_config['enable_pps_sync']:
                     pps_info = self.sync_manager.get_last_pps_time()
                     if pps_info:
@@ -155,7 +155,7 @@ class Camera:
                             2
                         )
                 
-                # タイムスタンプを追加
+                # Add timestamp
                 cv2.putText(
                     self.frame,
                     timestamp,
@@ -169,28 +169,28 @@ class Camera:
                 if self.recording and self.writer:
                     self.writer.write(self.frame)
                     
-                # フレームレート調整
+                # Frame rate adjustment
                 delay = 1.0 / self.config['fps'] - (current_time - last_frame_time)
                 if delay > 0:
                     time.sleep(delay)
                 last_frame_time = time.time()
                 
             except Exception as e:
-                self.logger.error(f"キャプチャループエラー: {str(e)}")
+                self.logger.error(f"Capture loop error: {str(e)}")
                 time.sleep(0.5)
     
     def start_recording(self):
-        """録画開始"""
+        """Start recording"""
         if self.recording:
-            self.logger.warning("既に録画中です")
+            self.logger.warning("Already recording")
             return
         
         if not self.running:
-            self.logger.warning("カメラが開始されていないため、録画できません")
+            self.logger.warning("Camera not started, cannot record")
             return
         
         try:
-            # 新しいビデオファイルのパスを作成
+            # Create path for new video file
             timestamp = datetime.now().strftime(self.storage_config['timestamp_format'])
             video_filename = f"360cam_{timestamp}{self.config['extension']}"
             
@@ -211,7 +211,7 @@ class Camera:
             
             self.current_video_path = os.path.join(video_dir, video_filename)
             
-            # ビデオライターの初期化
+            # Initialize video writer
             fourcc = cv2.VideoWriter_fourcc(*self.config['codec'])
             self.writer = cv2.VideoWriter(
                 self.current_video_path,
@@ -221,26 +221,26 @@ class Camera:
             )
             
             if not self.writer.isOpened():
-                self.logger.error(f"ビデオライターを開けませんでした: {self.current_video_path}")
+                self.logger.error(f"Could not open video writer: {self.current_video_path}")
                 return
             
             self.recording = True
             self.start_time = datetime.now()
             self.frame_count = 0
             
-            self.logger.info(f"録画を開始しました: {self.current_video_path}")
+            self.logger.info(f"Started recording: {self.current_video_path}")
             
-            # 同期マネージャに録画開始を通知
+            # Notify sync manager of recording start
             if self.sync_manager:
                 self.sync_manager.register_recording_start(self.current_video_path, self.start_time)
                 
         except Exception as e:
-            self.logger.error(f"録画開始エラー: {str(e)}")
+            self.logger.error(f"Start recording error: {str(e)}")
     
     def stop_recording(self):
-        """録画停止"""
+        """Stop recording"""
         if not self.recording:
-            self.logger.warning("録画中ではありません")
+            self.logger.warning("Not recording")
             return
         
         try:
@@ -250,20 +250,20 @@ class Camera:
             
             end_time = datetime.now()
             duration = (end_time - self.start_time).total_seconds()
-            self.logger.info(f"録画を停止しました: {self.current_video_path} (時間: {duration:.2f}秒, フレーム: {self.frame_count})")
+            self.logger.info(f"Stopped recording: {self.current_video_path} (duration: {duration:.2f}s, frames: {self.frame_count})")
             
-            # 同期マネージャに録画終了を通知
+            # Notify sync manager of recording stop
             if self.sync_manager:
                 self.sync_manager.register_recording_stop(self.current_video_path, end_time)
             
             self.recording = False
         except Exception as e:
-            self.logger.error(f"録画停止エラー: {str(e)}")
+            self.logger.error(f"Stop recording error: {str(e)}")
     
     def capture_photo(self):
-        """写真を撮影"""
+        """Capture a photo"""
         if not self.running or self.frame is None:
-            self.logger.warning("カメラが開始されていないか、フレームがありません")
+            self.logger.warning("Camera not started or no frame available")
             return None
         
         try:
@@ -287,28 +287,28 @@ class Camera:
             
             photo_path = os.path.join(photo_dir, photo_filename)
             cv2.imwrite(photo_path, self.frame)
-            self.logger.info(f"写真を保存しました: {photo_path}")
+            self.logger.info(f"Saved photo: {photo_path}")
             
-            # 同期マネージャに写真撮影を通知
+            # Notify sync manager of photo capture
             if self.sync_manager:
                 self.sync_manager.register_photo_capture(photo_path, datetime.now())
             
             return photo_path
         except Exception as e:
-            self.logger.error(f"写真撮影エラー: {str(e)}")
+            self.logger.error(f"Photo capture error: {str(e)}")
             return None
     
     def get_preview_frame(self):
-        """プレビュー用のフレームを取得"""
+        """Get a frame for preview"""
         if self.frame is None:
             return None
         
         try:
-            # リサイズ
+            # Resize
             preview_width = self.config['preview_width']
             preview_height = self.config['preview_height']
             preview_frame = cv2.resize(self.frame, (preview_width, preview_height))
             return preview_frame
         except Exception as e:
-            self.logger.error(f"プレビューフレーム取得エラー: {str(e)}")
+            self.logger.error(f"Preview frame error: {str(e)}")
             return None
