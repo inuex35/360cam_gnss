@@ -41,12 +41,9 @@ GNSS_CONFIG = {
 # Storage settings
 STORAGE_CONFIG = {
     'base_path': './data',            # Base path for data storage
-    'video_dir': 'videos',            # Directory for video storage
-    'photo_dir': 'photos',            # Directory for photo storage
-    'gnss_dir': 'gnss',               # Directory for GNSS data storage
-    'sync_dir': 'sync',               # Directory for synchronization info storage
+    'filename_prefix': '360cam',      # Prefix for filenames
     'timestamp_format': '%Y%m%d_%H%M%S',  # Timestamp format
-    'use_timestamp_subdir': True      # Create subdirectories by date
+    'session_based': True             # Use session-based directories instead of type-based
 }
 
 # Application settings
