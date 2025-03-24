@@ -330,75 +330,78 @@ class GNSS:
                 time.sleep(0.1)
     
     def get_current_position(self):
-        """Get current position (latitude, longitude, altitude)"""
+        """Get current GPS position"""
         return self.current_position
     
     def get_current_time(self):
-        """Get current time from GNSS data"""
+        """Get current GPS time"""
         return self.current_time
     
+    def get_satellites_info(self):
+        """Get satellites information"""
+        if self.last_gsa:
+            return {
+                'fix_type': self.last_gsa.mode_fix_type,
+                'satellites': self.last_gsa.sv_id01,
+                'pdop': self.last_gsa.pdop,
+                'hdop': self.last_gsa.hdop,
+                'vdop': self.last_gsa.vdop
+            }
+        return None
+    
     def get_fix_info(self):
-        """Get current fix information"""
-        fix_info = {
-            'valid': False,
-            'satellites': 0,
-            'quality': 0,
-            'hdop': 0,
-            'speed': 0,
-            'track': 0
-        }
-        
+        """Get fix information"""
         if self.last_gga:
-            fix_info['valid'] = self.last_gga.gps_qual > 0
-            fix_info['satellites'] = int(self.last_gga.num_sats) if self.last_gga.num_sats else 0
-            fix_info['quality'] = int(self.last_gga.gps_qual) if self.last_gga.gps_qual else 0
-            fix_info['hdop'] = float(self.last_gga.horizontal_dil) if self.last_gga.horizontal_dil else 0
-            
+            return {
+                'fix_quality': self.last_gga.gps_qual,
+                'num_satellites': self.last_gga.num_sats,
+                'hdop': self.last_gga.horizontal_dil,
+                'altitude': self.last_gga.altitude,
+                'geoid_sep': self.last_gga.geo_sep
+            }
+        return None
+    
+    def get_speed_course(self):
+        """Get speed and course information"""
         if self.last_rmc:
-            fix_info['speed'] = float(self.last_rmc.spd_over_grnd) if self.last_rmc.spd_over_grnd else 0
-            fix_info['track'] = float(self.last_rmc.true_course) if self.last_rmc.true_course else 0
-            
-        return fix_info
+            return {
+                'speed': self.last_rmc.spd_over_grnd,
+                'course': self.last_rmc.true_course,
+                'status': self.last_rmc.status
+            }
+        return None
     
     def add_waypoint(self, name=None, description=None):
-        """
-        Add a waypoint at the current position
-        
-        Args:
-            name: Name of the waypoint (default: timestamp)
-            description: Description of the waypoint (optional)
-            
-        Returns:
-            str: Waypoint ID if successful, None otherwise
-        """
+        """Add a waypoint at current position"""
         if not self.current_position:
-            self.logger.warning("Cannot add waypoint: No valid position")
+            self.logger.warning("Cannot add waypoint: No valid position available")
             return None
         
         try:
-            lat, lon, ele = self.current_position
-            
-            if not name:
+            if name is None:
                 name = f"WP_{datetime.now().strftime('%H%M%S')}"
-                
+            
             waypoint = gpxpy.gpx.GPXWaypoint(
-                latitude=lat,
-                longitude=lon,
-                elevation=ele,
-                time=datetime.now(),
+                latitude=self.current_position[0],
+                longitude=self.current_position[1],
+                elevation=self.current_position[2] if len(self.current_position) > 2 else None,
                 name=name,
-                description=description
+                description=description,
+                time=datetime.now()
             )
             
             self.gpx.waypoints.append(waypoint)
             self.waypoints.append(waypoint)
             
-            # Save GPX after adding waypoint
-            self._save_gpx()
+            self.logger.info(f"Added waypoint {name} at {self.current_position}")
             
-            self.logger.info(f"Added waypoint: {name} at {lat}, {lon}")
-            return name
-            
+            return waypoint
         except Exception as e:
             self.logger.error(f"Error adding waypoint: {str(e)}")
             return None
+    
+    def is_fix_valid(self):
+        """Check if current GPS fix is valid"""
+        if self.last_gga and self.last_gga.gps_qual > 0:
+            return True
+        return False
