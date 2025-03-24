@@ -24,12 +24,13 @@ from config import CAMERA_CONFIG, STORAGE_CONFIG, APP_CONFIG
 class Camera:
     """Class for managing 360-degree camera capture and recording"""
     
-    def __init__(self, sync_manager=None):
+    def __init__(self, sync_manager=None, session_dir=None):
         """
         Initialize the Camera class
         
         Args:
             sync_manager: Instance of sync manager (optional)
+            session_dir: Session directory for storing data
         """
         self.logger = logging.getLogger('Camera')
         self.config = CAMERA_CONFIG
@@ -47,6 +48,7 @@ class Camera:
         self.start_time = None
         self.current_video_path = None
         self.sync_manager = sync_manager
+        self.session_dir = session_dir
         
         # Thread-related
         self.capture_thread = None
@@ -58,13 +60,15 @@ class Camera:
     def _init_directories(self):
         """Initialize storage directories"""
         base_path = self.storage_config['base_path']
-        video_dir = os.path.join(base_path, self.storage_config['video_dir'])
-        photo_dir = os.path.join(base_path, self.storage_config['photo_dir'])
+        if not os.path.exists(base_path):
+            os.makedirs(base_path)
+            self.logger.info(f"Created directory: {base_path}")
         
-        for directory in [base_path, video_dir, photo_dir]:
-            if not os.path.exists(directory):
-                os.makedirs(directory)
-                self.logger.info(f"Created directory: {directory}")
+        # If session directory is provided, use it
+        if self.session_dir:
+            if not os.path.exists(self.session_dir):
+                os.makedirs(self.session_dir)
+                self.logger.info(f"Created session directory: {self.session_dir}")
     
     def open(self):
         """Open camera"""
@@ -190,26 +194,24 @@ class Camera:
             return
         
         try:
-            # Create path for new video file
-            timestamp = datetime.now().strftime(self.storage_config['timestamp_format'])
-            video_filename = f"360cam_{timestamp}{self.config['extension']}"
-            
-            if self.storage_config['use_timestamp_subdir']:
-                subdir = datetime.now().strftime("%Y%m%d")
-                video_dir = os.path.join(
+            # Create session directory if it doesn't exist yet
+            if not self.session_dir:
+                timestamp = datetime.now().strftime(self.storage_config['timestamp_format'])
+                self.session_dir = os.path.join(
                     self.storage_config['base_path'],
-                    self.storage_config['video_dir'],
-                    subdir
+                    timestamp
                 )
-                if not os.path.exists(video_dir):
-                    os.makedirs(video_dir)
-            else:
-                video_dir = os.path.join(
-                    self.storage_config['base_path'],
-                    self.storage_config['video_dir']
-                )
+                if not os.path.exists(self.session_dir):
+                    os.makedirs(self.session_dir)
+                    self.logger.info(f"Created session directory: {self.session_dir}")
+                
+                # Notify sync manager of new session directory
+                if self.sync_manager:
+                    self.sync_manager.set_session_dir(self.session_dir)
             
-            self.current_video_path = os.path.join(video_dir, video_filename)
+            # Create video filename
+            video_filename = f"{self.storage_config['filename_prefix']}_video{self.config['extension']}"
+            self.current_video_path = os.path.join(self.session_dir, video_filename)
             
             # Initialize video writer
             fourcc = cv2.VideoWriter_fourcc(*self.config['codec'])
@@ -267,25 +269,27 @@ class Camera:
             return None
         
         try:
+            # Create session directory if it doesn't exist yet
+            if not self.session_dir:
+                timestamp = datetime.now().strftime(self.storage_config['timestamp_format'])
+                self.session_dir = os.path.join(
+                    self.storage_config['base_path'],
+                    timestamp
+                )
+                if not os.path.exists(self.session_dir):
+                    os.makedirs(self.session_dir)
+                    self.logger.info(f"Created session directory: {self.session_dir}")
+                
+                # Notify sync manager of new session directory
+                if self.sync_manager:
+                    self.sync_manager.set_session_dir(self.session_dir)
+            
+            # Create unique photo filename with timestamp
             timestamp = datetime.now().strftime(self.storage_config['timestamp_format'])
-            photo_filename = f"360cam_{timestamp}{self.config['photo_extension']}"
+            photo_filename = f"{self.storage_config['filename_prefix']}_photo_{timestamp}{self.config['photo_extension']}"
+            photo_path = os.path.join(self.session_dir, photo_filename)
             
-            if self.storage_config['use_timestamp_subdir']:
-                subdir = datetime.now().strftime("%Y%m%d")
-                photo_dir = os.path.join(
-                    self.storage_config['base_path'],
-                    self.storage_config['photo_dir'],
-                    subdir
-                )
-                if not os.path.exists(photo_dir):
-                    os.makedirs(photo_dir)
-            else:
-                photo_dir = os.path.join(
-                    self.storage_config['base_path'],
-                    self.storage_config['photo_dir']
-                )
-            
-            photo_path = os.path.join(photo_dir, photo_filename)
+            # Save photo
             cv2.imwrite(photo_path, self.frame)
             self.logger.info(f"Saved photo: {photo_path}")
             
@@ -312,3 +316,7 @@ class Camera:
         except Exception as e:
             self.logger.error(f"Preview frame error: {str(e)}")
             return None
+    
+    def get_session_dir(self):
+        """Get the current session directory"""
+        return self.session_dir
