@@ -1,71 +1,71 @@
 # 360Cam GNSS
 
-Raspberry Pi CM4用の360度カメラとGNSSデータ収集システム。PPSを使用して時間同期を行います。
+A 360-degree camera and GNSS data collection system for Raspberry Pi CM4. Uses PPS signal for time synchronization.
 
-## 機能
+## Features
 
-- 360度カメラからの映像キャプチャと保存
-- GNSS/GPSからのNMEAデータの取得とGPXファイルへの保存
-- PPS（Pulse Per Second）信号を利用した時間同期
-- 映像とGNSSデータの同期記録
+- Capture and save video from 360-degree cameras
+- Collect NMEA data from GNSS/GPS and save to GPX files
+- Time synchronization using PPS (Pulse Per Second) signals
+- Synchronized recording of video and GNSS data
 
-## ハードウェア要件
+## Hardware Requirements
 
 - Raspberry Pi Compute Module 4
-- 360度カメラ（OpenCVと互換性のあるUSBカメラ）
-- GNSS/GPSモジュール（シリアル通信対応、PPSピン付き）
-- microSDカード（高速・大容量推奨）
+- 360-degree camera (USB camera compatible with OpenCV)
+- GNSS/GPS module (with serial communication and PPS pin)
+- microSD card (high-speed and high-capacity recommended)
 
-## ソフトウェア要件
+## Software Requirements
 
 - Raspberry Pi OS (32-bit/64-bit)
-- Python 3.6以上
+- Python 3.6 or higher
 - OpenCV 4.x
-- GPSライブラリ (pynmea2, gpxpy)
+- GPS libraries (pynmea2, gpxpy)
 - RPi.GPIO
 
-## インストール方法
+## Installation
 
 ```bash
-# 必要なパッケージのインストール
+# Install required packages
 sudo apt-get update
 sudo apt-get install -y python3-opencv python3-pip python3-rpi.gpio gpsd gpsd-clients
 
-# Pythonライブラリのインストール
+# Install Python libraries
 pip3 install pynmea2 gpxpy
 
-# リポジトリのクローン
+# Clone the repository
 git clone https://github.com/inuex35/360cam_gnss.git
 cd 360cam_gnss
 ```
 
-## 使用方法
+## Usage
 
-1. ハードウェアの接続
-   - 360度カメラをUSBポートに接続
-   - GPSモジュールをシリアルポート(UART)に接続
-   - GPSモジュールのPPSピンをRaspberry PiのGPIOピンに接続（デフォルト: GPIO18）
+1. Connect Hardware
+   - Connect 360-degree camera to USB port
+   - Connect GPS module to serial port (UART)
+   - Connect GPS module's PPS pin to Raspberry Pi GPIO pin (default: GPIO18)
    
-2. 設定ファイルの編集
+2. Edit configuration file
    ```bash
    nano config.py
    ```
    
-3. プログラム実行
+3. Run the program
    ```bash
    python3 main.py
    ```
 
-## ファイル構成
+## File Structure
 
-- `main.py`: メインプログラム
-- `config.py`: 設定ファイル
-- `camera.py`: 360度カメラモジュール
-- `gnss.py`: GNSSデータ処理モジュール
-- `sync.py`: PPS同期モジュール
-- `utils.py`: ユーティリティ関数
-- `data/`: 保存されたデータディレクトリ
+- `main.py`: Main program
+- `config.py`: Configuration file
+- `camera.py`: 360-degree camera module
+- `gnss.py`: GNSS data processing module
+- `sync.py`: PPS synchronization module
+- `utils.py`: Utility functions
+- `data/`: Directory for saved data
 
-## ライセンス
+## License
 
 GPLv3
