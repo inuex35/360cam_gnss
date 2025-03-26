@@ -26,7 +26,7 @@ import io
 from config import CAMERA_CONFIG, STORAGE_CONFIG, APP_CONFIG
 
 class Camera:
-    """Class for managing stereoscopic/360-degree camera capture and recording using Raspberry Pi Camera Module"""
+    """Class for managing stereoscopic camera with real-time display and recording capabilities"""
     
     def __init__(self, sync_manager=None):
         """
@@ -51,6 +51,9 @@ class Camera:
         self.current_video_path = None
         self.h264_path = None
         self.sync_manager = sync_manager
+        
+        # Display options
+        self.display_mode = self.config.get('display_mode', 'side_by_side')  # 'side_by_side', 'left', 'right', 'anaglyph'
         
         # Thread-related
         self.capture_thread = None
@@ -124,7 +127,7 @@ class Camera:
         self.logger.info("Stopped camera capture")
     
     def _capture_loop(self):
-        """Frame capture loop from camera"""
+        """Frame capture loop from camera for real-time display"""
         stream = io.BytesIO()
         
         try:
@@ -139,33 +142,8 @@ class Camera:
                 data = np.frombuffer(stream.getvalue(), dtype=np.uint8)
                 self.frame = cv2.imdecode(data, cv2.IMREAD_COLOR)
                 
-                # Add timestamp to image
-                timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
-                
-                # Add PPS sync info if available
-                if self.sync_manager and self.app_config['enable_pps_sync']:
-                    pps_info = self.sync_manager.get_last_pps_time()
-                    if pps_info:
-                        cv2.putText(
-                            self.frame,
-                            f"PPS: {pps_info}",
-                            (10, 70),
-                            cv2.FONT_HERSHEY_SIMPLEX,
-                            0.7,
-                            (0, 255, 0),
-                            2
-                        )
-                
-                # Add timestamp
-                cv2.putText(
-                    self.frame,
-                    timestamp,
-                    (10, 30),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.7,
-                    (0, 255, 0),
-                    2
-                )
+                # Add timestamp and other info to frame
+                self._add_overlay_info(self.frame)
                 
                 self.frame_count += 1
                 
@@ -174,10 +152,62 @@ class Camera:
                 stream.truncate()
                 
                 # Small delay to match framerate
-                time.sleep(1.0 / self.config['fps'])
+                time.sleep(0.01)  # Reduced for more responsive real-time display
         
         except Exception as e:
             self.logger.error(f"Capture loop error: {str(e)}")
+    
+    def _add_overlay_info(self, frame):
+        """Add information overlay to frame"""
+        if frame is None:
+            return
+            
+        # Add timestamp
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+        cv2.putText(
+            frame,
+            timestamp,
+            (10, 30),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.7,
+            (0, 255, 0),
+            2
+        )
+        
+        # Add recording indicator if recording
+        if self.recording:
+            cv2.putText(
+                frame,
+                "REC",
+                (frame.shape[1] - 80, 30),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.7,
+                (0, 0, 255),
+                2
+            )
+            
+            # Add red circle for recording indicator
+            cv2.circle(
+                frame,
+                (frame.shape[1] - 100, 25),
+                10,
+                (0, 0, 255),
+                -1
+            )
+                
+        # Add PPS sync info if available
+        if self.sync_manager and self.app_config['enable_pps_sync']:
+            pps_info = self.sync_manager.get_last_pps_time()
+            if pps_info:
+                cv2.putText(
+                    frame,
+                    f"PPS: {pps_info}",
+                    (10, 70),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.7,
+                    (0, 255, 0),
+                    2
+                )
     
     def start_recording(self):
         """Start recording"""
@@ -192,7 +222,6 @@ class Camera:
         try:
             # Create path for new video file
             timestamp = datetime.now().strftime(self.storage_config['timestamp_format'])
-            video_filename = f"stereo_{timestamp}.mp4"
             h264_filename = f"stereo_{timestamp}.h264"
             
             if self.storage_config['use_timestamp_subdir']:
@@ -210,8 +239,8 @@ class Camera:
                     self.storage_config['video_dir']
                 )
             
-            self.current_video_path = os.path.join(video_dir, video_filename)
             self.h264_path = os.path.join(video_dir, h264_filename)
+            self.current_video_path = self.h264_path.replace('.h264', '.mp4')
             
             # Start recording using raspivid-like settings
             self.camera.start_recording(self.h264_path, format='h264')
@@ -243,16 +272,10 @@ class Camera:
             duration = (end_time - self.start_time).total_seconds()
             self.logger.info(f"Stopped recording: {self.h264_path} (duration: {duration:.2f}s)")
             
-            # Convert h264 to mp4 using MP4Box
-            try:
-                self.logger.info(f"Converting {self.h264_path} to {self.current_video_path}")
-                subprocess.run(['MP4Box', '-add', self.h264_path, self.current_video_path], check=True)
-                self.logger.info(f"Conversion complete: {self.current_video_path}")
-                
-                # Remove h264 file after successful conversion
-                os.remove(self.h264_path)
-            except Exception as e:
-                self.logger.error(f"Error converting video: {str(e)}")
+            # Convert h264 to mp4 using MP4Box in a separate thread to avoid blocking UI
+            converter_thread = Thread(target=self._convert_video)
+            converter_thread.daemon = True
+            converter_thread.start()
             
             # Notify sync manager of recording stop
             if self.sync_manager:
@@ -261,6 +284,19 @@ class Camera:
             self.recording = False
         except Exception as e:
             self.logger.error(f"Stop recording error: {str(e)}")
+    
+    def _convert_video(self):
+        """Convert h264 to mp4 in a separate thread"""
+        try:
+            self.logger.info(f"Converting {self.h264_path} to {self.current_video_path}")
+            subprocess.run(['MP4Box', '-add', self.h264_path, self.current_video_path], check=True)
+            self.logger.info(f"Conversion complete: {self.current_video_path}")
+            
+            # Remove h264 file after successful conversion if configured
+            if self.config.get('delete_h264_after_conversion', True):
+                os.remove(self.h264_path)
+        except Exception as e:
+            self.logger.error(f"Error converting video: {str(e)}")
     
     def capture_photo(self):
         """Capture a photo"""
@@ -308,11 +344,84 @@ class Camera:
             return None
         
         try:
-            # Resize
-            preview_width = self.config['preview_width']
-            preview_height = self.config['preview_height']
-            preview_frame = cv2.resize(self.frame, (preview_width, preview_height))
-            return preview_frame
+            # Create a copy to avoid modifying the original frame
+            frame = self.frame.copy()
+            
+            # Apply display mode transformations
+            frame = self._apply_display_mode(frame)
+            
+            # Resize if needed
+            if self.config['preview_width'] > 0 and self.config['preview_height'] > 0:
+                frame = cv2.resize(frame, (self.config['preview_width'], self.config['preview_height']))
+                
+            return frame
         except Exception as e:
             self.logger.error(f"Preview frame error: {str(e)}")
             return None
+    
+    def _apply_display_mode(self, frame):
+        """Apply the selected display mode to the frame"""
+        if frame is None:
+            return None
+            
+        # Get frame dimensions
+        height, width = frame.shape[:2]
+        half_width = width // 2
+        
+        if self.display_mode == 'side_by_side':
+            # Already in side-by-side format, no change needed
+            return frame
+            
+        elif self.display_mode == 'left':
+            # Extract left image
+            return frame[:, :half_width].copy()
+            
+        elif self.display_mode == 'right':
+            # Extract right image
+            return frame[:, half_width:].copy()
+            
+        elif self.display_mode == 'anaglyph':
+            # Create red-cyan anaglyph for 3D viewing with red-cyan glasses
+            left = frame[:, :half_width].copy()
+            right = frame[:, half_width:].copy()
+            
+            # Resize right image to match left if needed
+            if left.shape[1] != right.shape[1]:
+                right = cv2.resize(right, (left.shape[1], left.shape[0]))
+            
+            # Create anaglyph
+            anaglyph = np.zeros_like(left)
+            
+            # Left image - red channel
+            anaglyph[:, :, 2] = left[:, :, 2]  # Red channel
+            
+            # Right image - green and blue channels
+            anaglyph[:, :, 0] = right[:, :, 0]  # Blue channel
+            anaglyph[:, :, 1] = right[:, :, 1]  # Green channel
+            
+            return anaglyph
+        
+        else:
+            # Default to side-by-side
+            return frame
+    
+    def set_display_mode(self, mode):
+        """Set the display mode"""
+        valid_modes = ['side_by_side', 'left', 'right', 'anaglyph']
+        
+        if mode in valid_modes:
+            self.display_mode = mode
+            self.logger.info(f"Display mode set to: {mode}")
+            return True
+        else:
+            self.logger.warning(f"Invalid display mode: {mode}. Valid modes are: {valid_modes}")
+            return False
+    
+    def toggle_display_mode(self):
+        """Toggle through available display modes"""
+        modes = ['side_by_side', 'left', 'right', 'anaglyph']
+        current_index = modes.index(self.display_mode) if self.display_mode in modes else 0
+        next_index = (current_index + 1) % len(modes)
+        self.display_mode = modes[next_index]
+        self.logger.info(f"Display mode toggled to: {self.display_mode}")
+        return self.display_mode
