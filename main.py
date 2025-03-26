@@ -66,6 +66,13 @@ class MainApplication:
         self.recording = False
         self.last_gnss_update = time.time()
         self.show_info = True
+        self.show_fps = APP_CONFIG['show_fps']
+        self.fullscreen = CAMERA_CONFIG.get('fullscreen', False)
+        
+        # Performance tracking
+        self.frame_times = []
+        self.last_frame_time = time.time()
+        self.fps = 0
     
     def start(self):
         """Start the application"""
@@ -87,8 +94,15 @@ class MainApplication:
             
             self.running = True
             
+            # Set up display window
+            window_name = CAMERA_CONFIG.get('window_title', '360cam GNSS')
+            cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
+            
+            if self.fullscreen:
+                cv2.setWindowProperty(window_name, cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
+            
             # Main application loop
-            self.main_loop()
+            self.main_loop(window_name)
             
         except Exception as e:
             self.logger.error(f"Error in application startup: {str(e)}")
@@ -123,23 +137,67 @@ class MainApplication:
         self.stop()
         sys.exit(0)
     
-    def main_loop(self):
+    def main_loop(self, window_name):
         """Main application loop"""
         self.logger.info("Entering main loop")
         
         try:
             while self.running:
+                loop_start = time.time()
+                
                 # Get camera preview frame
                 if APP_CONFIG['enable_preview'] and self.camera:
                     frame = self.camera.get_preview_frame()
                     
                     if frame is not None:
+                        # Calculate FPS
+                        now = time.time()
+                        frame_time = now - self.last_frame_time
+                        self.last_frame_time = now
+                        
+                        # Keep track of the last 30 frames for FPS calculation
+                        self.frame_times.append(frame_time)
+                        if len(self.frame_times) > 30:
+                            self.frame_times.pop(0)
+                        
+                        # Calculate average FPS
+                        if self.frame_times:
+                            self.fps = len(self.frame_times) / sum(self.frame_times)
+                        
+                        # Add FPS display if enabled
+                        if self.show_fps:
+                            cv2.putText(
+                                frame,
+                                f"FPS: {self.fps:.1f}",
+                                (frame.shape[1] - 150, frame.shape[0] - 20),
+                                cv2.FONT_HERSHEY_SIMPLEX,
+                                0.6,
+                                (0, 255, 0),
+                                2
+                            )
+                        
                         # Add GNSS info overlay
                         if self.show_info:
-                            self.add_info_overlay(frame)
+                            self.add_gnss_overlay(frame)
+                        
+                        # Add help text if enabled
+                        if APP_CONFIG.get('show_help', True):
+                            help_text = self.get_help_text()
+                            y_offset = frame.shape[0] - 50
+                            for line in help_text:
+                                cv2.putText(
+                                    frame,
+                                    line,
+                                    (10, y_offset),
+                                    cv2.FONT_HERSHEY_SIMPLEX,
+                                    0.5,
+                                    (255, 255, 255),
+                                    1
+                                )
+                                y_offset += 20
                         
                         # Display frame
-                        cv2.imshow('360cam GNSS', frame)
+                        cv2.imshow(window_name, frame)
                 
                 # Check for keypress
                 key = cv2.waitKey(1) & 0xFF
@@ -152,16 +210,39 @@ class MainApplication:
                     self.toggle_recording()
                 elif key == ord('p'):  # Capture photo
                     self.capture_photo()
+                elif key == ord('w'):  # Add waypoint
+                    self.add_waypoint()
                 elif key == ord('i'):  # Toggle info display
                     self.show_info = not self.show_info
                     self.logger.info(f"Info display: {'on' if self.show_info else 'off'}")
-                elif key == ord('w'):  # Add waypoint
-                    self.add_waypoint()
+                elif key == ord('f'):  # Toggle FPS display
+                    self.show_fps = not self.show_fps
+                    self.logger.info(f"FPS display: {'on' if self.show_fps else 'off'}")
+                elif key == ord(APP_CONFIG['display_mode_key']):  # Toggle display mode
+                    new_mode = self.camera.toggle_display_mode()
+                    self.logger.info(f"Display mode: {new_mode}")
+                elif key == ord('1'):  # Side-by-side mode
+                    self.camera.set_display_mode('side_by_side')
+                elif key == ord('2'):  # Left camera mode
+                    self.camera.set_display_mode('left')
+                elif key == ord('3'):  # Right camera mode
+                    self.camera.set_display_mode('right')
+                elif key == ord('4'):  # Anaglyph mode
+                    self.camera.set_display_mode('anaglyph')
                 elif key == ord('s'):  # System info
                     self.show_system_info()
+                elif key == ord('F'):  # Toggle fullscreen
+                    self.fullscreen = not self.fullscreen
+                    cv2.setWindowProperty(
+                        window_name,
+                        cv2.WND_PROP_FULLSCREEN,
+                        cv2.WINDOW_FULLSCREEN if self.fullscreen else cv2.WINDOW_NORMAL
+                    )
                 
-                # Sleep to reduce CPU usage
-                time.sleep(0.01)
+                # Calculate loop time and sleep to maintain reasonable CPU usage
+                loop_time = time.time() - loop_start
+                sleep_time = max(0.001, 1.0/60 - loop_time)  # Target ~60Hz UI updates
+                time.sleep(sleep_time)
         
         except Exception as e:
             self.logger.error(f"Error in main loop: {str(e)}")
@@ -201,68 +282,16 @@ class MainApplication:
         info = utils.get_system_info()
         self.logger.info(f"System info: {info}")
     
-    def add_info_overlay(self, frame):
-        """Add information overlay to frame"""
-        # Get current time
-        current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    def add_gnss_overlay(self, frame):
+        """Add GNSS information overlay to frame"""
+        # Only update every second to keep display readable
+        if time.time() - self.last_gnss_update > 1.0:
+            self.last_gnss_update = time.time()
         
-        # Add timestamp
-        cv2.putText(
-            frame,
-            current_time,
-            (10, 30),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.7,
-            (0, 255, 0),
-            2
-        )
-        
-        # Add recording status
-        if self.recording:
-            cv2.putText(
-                frame,
-                "REC",
-                (frame.shape[1] - 80, 30),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.7,
-                (0, 0, 255),
-                2
-            )
-            
-            # Add recording indicator (red circle)
-            cv2.circle(
-                frame,
-                (frame.shape[1] - 100, 25),
-                10,
-                (0, 0, 255),
-                -1
-            )
-        
-        # Add PPS info if available
-        if self.sync_manager and APP_CONFIG['enable_pps_sync']:
-            pps_time = self.sync_manager.get_last_pps_time()
-            pps_count = self.sync_manager.get_pps_count()
-            
-            if pps_time:
-                cv2.putText(
-                    frame,
-                    f"PPS: {pps_count}",
-                    (10, 60),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.7,
-                    (0, 255, 0),
-                    2
-                )
-        
-        # Add GNSS info if available
         if self.gnss:
             position = self.gnss.get_current_position()
             
             if position:
-                # Only update every second to keep display readable
-                if time.time() - self.last_gnss_update > 1.0:
-                    self.last_gnss_update = time.time()
-                
                 # Format coordinates
                 lat_str = f"{position[0]:.6f}°"
                 lon_str = f"{position[1]:.6f}°"
@@ -342,17 +371,14 @@ class MainApplication:
                         color,
                         2
                     )
-        
-        # Add help text
-        cv2.putText(
-            frame,
-            "r: record | p: photo | w: waypoint | i: info | s: system | q: quit",
-            (10, frame.shape[0] - 20),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.5,
-            (255, 255, 255),
-            1
-        )
+    
+    def get_help_text(self):
+        """Get the help text to display on screen"""
+        return [
+            f"Display: {self.camera.display_mode}",
+            "r: record | p: photo | w: waypoint | i: info | f: FPS | F: fullscreen",
+            "d: toggle display mode | 1-4: select mode | s: system | q: quit"
+        ]
 
 # Main entry point
 if __name__ == "__main__":
