@@ -20,8 +20,12 @@ CAMERA_CONFIG = {
     'extension': '.mp4',              # Video file extension
     'capture_interval': 0,            # Capture interval in seconds for time-lapse (0 for continuous recording)
     'photo_extension': '.jpg',        # Photo file extension
-    'preview_width': 800,             # Preview window width
-    'preview_height': 300             # Preview window height
+    'preview_width': 1024,            # Preview window width
+    'preview_height': 384,            # Preview window height
+    'display_mode': 'side_by_side',   # Initial display mode: 'side_by_side', 'left', 'right', 'anaglyph'
+    'delete_h264_after_conversion': True,  # Delete .h264 files after conversion to .mp4
+    'fullscreen': False,              # Start in fullscreen mode
+    'window_title': '360cam GNSS - Stereoscopic View'  # Window title
 }
 
 # GNSS settings
@@ -54,5 +58,8 @@ APP_CONFIG = {
     'enable_preview': True,           # Enable camera preview
     'save_on_exit': True,             # Save data on exit
     'enable_pps_sync': True,          # Enable PPS synchronization
-    'exit_key': 'q'                   # Exit key
+    'exit_key': 'q',                  # Exit key
+    'display_mode_key': 'd',          # Toggle display mode key
+    'show_fps': True,                 # Show FPS counter in preview
+    'show_help': True                 # Show keyboard shortcuts in preview
 }
