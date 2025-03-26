@@ -13,16 +13,15 @@
 
 # Camera settings
 CAMERA_CONFIG = {
-    'device_id': 0,                   # Camera device ID (usually 0)
-    'width': 1920,                    # Image width
-    'height': 1080,                   # Image height
+    'width': 1280,                    # Image width (should be divisible by 32)
+    'height': 480,                    # Image height (should be divisible by 16)
     'fps': 30,                        # Frame rate
-    'codec': 'XVID',                  # Video codec
-    'extension': '.avi',              # Video file extension
+    'codec': 'h264',                  # Video codec
+    'extension': '.mp4',              # Video file extension
     'capture_interval': 0,            # Capture interval in seconds for time-lapse (0 for continuous recording)
     'photo_extension': '.jpg',        # Photo file extension
     'preview_width': 800,             # Preview window width
-    'preview_height': 450             # Preview window height
+    'preview_height': 300             # Preview window height
 }
 
 # GNSS settings
@@ -41,9 +40,12 @@ GNSS_CONFIG = {
 # Storage settings
 STORAGE_CONFIG = {
     'base_path': './data',            # Base path for data storage
-    'filename_prefix': '360cam',      # Prefix for filenames
+    'video_dir': 'videos',            # Directory for video storage
+    'photo_dir': 'photos',            # Directory for photo storage
+    'gnss_dir': 'gnss',               # Directory for GNSS data storage
+    'sync_dir': 'sync',               # Directory for synchronization info storage
     'timestamp_format': '%Y%m%d_%H%M%S',  # Timestamp format
-    'session_based': True             # Use session-based directories instead of type-based
+    'use_timestamp_subdir': True      # Create subdirectories by date
 }
 
 # Application settings
