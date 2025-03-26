@@ -1,10 +1,14 @@
 # 360Cam GNSS
 
-A stereoscopic/360-degree camera and GNSS data collection system for Raspberry Pi CM4. Uses PPS signal for time synchronization.
+A real-time stereoscopic/360-degree camera viewer and data recorder for Raspberry Pi CM4. Uses PPS signal for time synchronization with GNSS data.
 
 ## Features
 
-- Capture and save stereoscopic 3D video in side-by-side format using Raspberry Pi Camera Module
+- **Real-time display** of stereoscopic 3D video from Raspberry Pi Camera Module
+- Multiple viewing modes:
+  - **Side-by-Side**: Standard stereoscopic view
+  - **Left/Right**: Individual camera views
+  - **Anaglyph**: Red-cyan 3D mode for use with 3D glasses
 - Collect NMEA data from GNSS/GPS and save to GPX files
 - Time synchronization using PPS (Pulse Per Second) signals
 - Synchronized recording of video and GNSS data
@@ -51,6 +55,15 @@ raspivid -3d sbs -w 1280 -h 480 -t 10000 -o stereo.h264 && MP4Box -add stereo.h2
 
 You can adjust the camera resolution in the `config.py` file. Note that width should be divisible by 32 and height by 16 for optimal performance with the Raspberry Pi camera.
 
+## Display Modes
+
+The application supports multiple viewing modes for the stereoscopic camera:
+
+- **Side-by-Side (default)**: Shows the full stereoscopic view
+- **Left**: Shows only the left camera view
+- **Right**: Shows only the right camera view
+- **Anaglyph**: Creates a red-cyan 3D image for viewing with anaglyph 3D glasses
+
 ## Usage
 
 1. Connect Hardware
@@ -73,14 +86,29 @@ You can adjust the camera resolution in the `config.py` file. Note that width sh
    - `p`: Capture a photo
    - `w`: Add a waypoint at current position
    - `i`: Toggle info display
+   - `f`: Toggle FPS display
+   - `F`: Toggle fullscreen mode
+   - `d`: Cycle through display modes
+   - `1`: Side-by-side display mode
+   - `2`: Left camera only
+   - `3`: Right camera only
+   - `4`: Anaglyph (red-cyan) mode
    - `s`: Show system information
    - `q`: Quit the application
+
+## Performance Considerations
+
+For best performance:
+- Use a Raspberry Pi CM4 with at least 2GB of RAM
+- Use a Class 10 or UHS-I microSD card
+- Close unnecessary applications while running
+- If using a battery, ensure it can provide sufficient power
 
 ## File Structure
 
 - `main.py`: Main program
 - `config.py`: Configuration file
-- `camera.py`: Camera module for stereoscopic capture
+- `camera.py`: Camera module for stereoscopic capture and real-time display
 - `gnss.py`: GNSS data processing module
 - `sync.py`: PPS synchronization module
 - `utils.py`: Utility functions
