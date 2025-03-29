@@ -45,12 +45,10 @@ class Camera:
         self.frame = None
         self.running = False
         self.recording = False
-        self.h264_output = None
-        self.frame_count = 0
-        self.start_time = None
         self.current_video_path = None
         self.h264_path = None
         self.sync_manager = sync_manager
+        self.start_time = None
         
         # Display options
         self.display_mode = self.config.get('display_mode', 'side_by_side')  # 'side_by_side', 'left', 'right', 'anaglyph'
@@ -76,8 +74,8 @@ class Camera:
     def open(self):
         """Open camera"""
         try:
-            # Initialize the PiCamera
-            self.camera = PiCamera(
+            # Initialize the PiCamera with stereo mode
+            self.camera = picamera.PiCamera(
                 stereo_mode='side-by-side',
                 stereo_decimate=False
             )
@@ -145,14 +143,12 @@ class Camera:
                 # Add timestamp and other info to frame
                 self._add_overlay_info(self.frame)
                 
-                self.frame_count += 1
-                
                 # Reset stream for next capture
                 stream.seek(0)
                 stream.truncate()
                 
                 # Small delay to match framerate
-                time.sleep(0.01)  # Reduced for more responsive real-time display
+                time.sleep(0.01)  # Adjusted for more responsive real-time display
         
         except Exception as e:
             self.logger.error(f"Capture loop error: {str(e)}")
@@ -242,12 +238,11 @@ class Camera:
             self.h264_path = os.path.join(video_dir, h264_filename)
             self.current_video_path = self.h264_path.replace('.h264', '.mp4')
             
-            # Start recording using raspivid-like settings
-            self.camera.start_recording(self.h264_path, format='h264')
+            # Start recording directly to h264 file
+            self.camera.start_recording(self.h264_path)
             
             self.recording = True
             self.start_time = datetime.now()
-            self.frame_count = 0
             
             self.logger.info(f"Started recording: {self.h264_path}")
             
@@ -325,8 +320,8 @@ class Camera:
             
             photo_path = os.path.join(photo_dir, photo_filename)
             
-            # Capture directly to file
-            self.camera.capture(photo_path, format='jpeg')
+            # Capture directly to file using picamera
+            self.camera.capture(photo_path)
             self.logger.info(f"Saved photo: {photo_path}")
             
             # Notify sync manager of photo capture
