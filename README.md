@@ -7,7 +7,7 @@ Raspberry Pi用のステレオスコピック360度カメラシステムとGNSS�
 - ステレオスコピックカメラ撮影（左右2台のカメラ）
 - 複数の表示モード（左右並列、左のみ、右のみ、アナグリフ3D）
 - 動画録画と静止画撮影
-- Fletを使用したグラフィカルユーザーインターフェース
+- ウェブインターフェース（Flaskベース）でのカメラ制御
 
 ## インストール方法
 
@@ -17,9 +17,9 @@ sudo apt-get update
 sudo apt-get install -y python3-picamera python3-opencv gpsd gpsd-clients python3-pip mp4box
 ```
 
-### Python依存関係
+### Python依存関係（Python 3.7用）
 ```bash
-pip install -r requirements.txt
+pip3 install -r py37_requirements.txt
 ```
 
 ## 使用方法
@@ -34,35 +34,36 @@ python3 start_camera.py
 # q - 終了
 ```
 
-### GUIアプリの使用
+### ウェブアプリの使用
 ```bash
-# Fletベースのグラフィカルインターフェースを起動
-python3 camera_app.py
+# Flaskベースのウェブインターフェースを起動
+python3 web_camera_app.py
 ```
 
-GUI機能:
+ブラウザで以下のURLにアクセスしてください：
+```
+http://ラズパイのIPアドレス:8080
+```
+
+ウェブアプリの機能:
 - カメラ起動/停止
 - 録画開始/停止
 - 写真撮影
 - 表示モード切替（左右並列、左のみ、右のみ、アナグリフ3D）
+- リアルタイムカメラプレビュー
 
 ## ファイル構成
 - `camera.py` - カメラクラスの実装
 - `config.py` - 設定ファイル
 - `start_camera.py` - シンプルなコマンドラインインターフェース
-- `camera_app.py` - Fletベースのグラフィカルインターフェース
+- `web_camera_app.py` - Flaskベースのウェブインターフェース
+- `camera_app.py` - Fletベースのグラフィカルインターフェース（Python 3.9以上が必要）
 
-## リモート操作
-Fletアプリはネットワーク経由でリモート操作が可能です。
-```bash
-# Raspberry Piで以下を実行してリモートアクセスを有効にする
-python3 -m flet.web camera_app.py
-```
-
-その後、Raspberry PiのIPアドレスとポート8550にブラウザからアクセスできます：
-```
-http://raspi-ip:8550
-```
+## Python 3.7での実行について
+Python 3.7で実行する場合は、以下の点に注意してください：
+- `web_camera_app.py` はPython 3.7と互換性があります
+- 依存パッケージをインストールする際には `py37_requirements.txt` を使用してください
+- `camera_app.py`（Fletバージョン）はPython 3.9以上が必要です
 
 ## ライセンス
 このプロジェクトはGNU General Public License v3.0の下でライセンスされています。
