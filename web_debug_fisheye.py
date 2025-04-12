@@ -19,6 +19,7 @@ import sys
 import numpy as np
 import json
 import copy
+import threading
 from threading import Thread, Event
 from datetime import datetime
 from camera import Camera
@@ -63,7 +64,7 @@ class WebDebugFisheyeCamera(Camera):
     
     def update_parameters(self, params):
         """Update parameters from web interface"""
-        # Update parameters, using current values as defaults
+        # Update slider parameters
         for key in ['cx1', 'cy1', 'cx2', 'cy2', 'radius_scale', 'field_of_view', 'fisheye_overlap']:
             if key in params:
                 # Convert to proper type
@@ -71,6 +72,11 @@ class WebDebugFisheyeCamera(Camera):
                     self.config[key] = float(params[key])
                 else:
                     self.config[key] = int(params[key])
+        
+        # Update switch parameters
+        for key in ['back_to_back', 'smooth_transition', 'vertical_flip', 'horizontal_flip']:
+            if key in params:
+                self.config[key] = bool(params[key])
         
         # Reset calibration to force recalculation of maps
         self.calibration_initialized = False
@@ -82,7 +88,9 @@ class WebDebugFisheyeCamera(Camera):
                          f"CX2={self.config['cx2']}, CY2={self.config['cy2']}, "
                          f"Radius Scale={self.config['radius_scale']}, "
                          f"FOV={self.config['field_of_view']}°, "
-                         f"Overlap={self.config['fisheye_overlap']}°")
+                         f"Overlap={self.config['fisheye_overlap']}°, "
+                         f"Back-to-back={self.config['back_to_back']}, "
+                         f"Smooth={self.config['smooth_transition']}")
         
         return self.config
     
@@ -100,6 +108,28 @@ class WebDebugFisheyeCamera(Camera):
             f.write(f"RADIUS_SCALE = {self.config['radius_scale']}\n")
             f.write(f"FIELD_OF_VIEW = {self.config['field_of_view']}\n")
             f.write(f"OVERLAP = {self.config['fisheye_overlap']}\n")
+            f.write(f"BACK_TO_BACK = {self.config['back_to_back']}\n")
+            f.write(f"SMOOTH_TRANSITION = {self.config['smooth_transition']}\n")
+            f.write(f"VERTICAL_FLIP = {self.config['vertical_flip']}\n")
+            f.write(f"HORIZONTAL_FLIP = {self.config['horizontal_flip']}\n")
+            
+            # Add configuration code snippet
+            f.write("\n# Configuration for config.py:\n")
+            f.write("'''\n")
+            f.write("DUAL_FISHEYE_CONFIG = {\n")
+            f.write(f"    'cx1': {self.config['cx1']},\n")
+            f.write(f"    'cy1': {self.config['cy1']},\n")
+            f.write(f"    'cx2': {self.config['cx2']},\n")
+            f.write(f"    'cy2': {self.config['cy2']},\n")
+            f.write(f"    'radius_scale': {self.config['radius_scale']},\n")
+            f.write(f"    'field_of_view': {self.config['field_of_view']},\n")
+            f.write(f"    'fisheye_overlap': {self.config['fisheye_overlap']},\n")
+            f.write(f"    'back_to_back': {self.config['back_to_back']},\n")
+            f.write(f"    'smooth_transition': {self.config['smooth_transition']},\n")
+            f.write(f"    'vertical_flip': {self.config['vertical_flip']},\n")
+            f.write(f"    'horizontal_flip': {self.config['horizontal_flip']},\n")
+            f.write("}\n")
+            f.write("'''\n")
         
         self.logger.info(f"Parameters saved to {filename}")
         return filename
@@ -143,43 +173,104 @@ class WebDebugFisheyeCamera(Camera):
         # Calculate maximum theta angle based on field of view
         max_theta = fov / 2
         
-        # Create maps with simplified approach
+        # Flag for 180° opposite direction camera setup
+        back_to_back = self.config.get('back_to_back', True)
+        
+        # Create maps for back-to-back camera setup
         for y in range(equ_h):
             for x in range(equ_w):
                 # Convert equirectangular coordinates to spherical
                 theta = (x / equ_w) * 2 * np.pi - np.pi  # -pi to pi
                 phi = (y / equ_h) * np.pi                # 0 to pi
                 
+                # Apply vertical flip if needed
+                if self.config.get('vertical_flip', False):
+                    phi = np.pi - phi
+                
+                # Apply horizontal flip if needed
+                if self.config.get('horizontal_flip', False):
+                    theta = -theta
+                
                 # Convert spherical to 3D Cartesian
                 x3d = np.sin(phi) * np.cos(theta)
                 y3d = np.sin(phi) * np.sin(theta)
                 z3d = np.cos(phi)
                 
-                # Simplified approach: use left half for left hemisphere, right half for right hemisphere
-                if theta < 0:  # Left hemisphere
-                    # Calculate fisheye projection parameters
-                    r = radius * np.sqrt(x3d*x3d + z3d*z3d) / (y3d + 1e-6)
-                    angle = np.arctan2(z3d, x3d)
-                    
-                    # Scale for field of view
-                    scale_factor = max_theta / (np.pi/2)  # Adjust scaling for FOV
-                    r = r / scale_factor
-                    
-                    # Map to coordinates
-                    self.fisheye_xmap[y, x] = cx1 + r * np.cos(angle)
-                    self.fisheye_ymap[y, x] = cy1 + r * np.sin(angle)
-                else:  # Right hemisphere
-                    # Calculate fisheye projection parameters
-                    r = radius * np.sqrt(x3d*x3d + z3d*z3d) / (y3d + 1e-6)
-                    angle = np.arctan2(z3d, x3d)
-                    
-                    # Scale for field of view
-                    scale_factor = max_theta / (np.pi/2)
-                    r = r / scale_factor
-                    
-                    # Map to coordinates
-                    self.fisheye_xmap[y, x] = cx2 + r * np.cos(angle)
-                    self.fisheye_ymap[y, x] = cy2 + r * np.sin(angle)
+                # Back-to-back cameras (opposite directions)
+                if back_to_back:
+                    # Use the appropriate fisheye lens based on the horizontal angle (theta)
+                    # Front hemisphere: -π/2 to π/2
+                    # Rear hemisphere: π/2 to 3π/2 (or -3π/2 to -π/2)
+                    if -np.pi/2 <= theta <= np.pi/2:
+                        # Front fisheye (first camera)
+                        # Project 3D point to fisheye image
+                        r = radius * np.sqrt(x3d*x3d + z3d*z3d) / (y3d + 1e-6)
+                        angle = np.arctan2(z3d, x3d)
+                        
+                        # Scale for field of view
+                        scale_factor = max_theta / (np.pi/2)  # Adjust scaling for FOV
+                        r = r / scale_factor
+                        
+                        # Map to image coordinates
+                        self.fisheye_xmap[y, x] = cx1 + r * np.cos(angle)
+                        self.fisheye_ymap[y, x] = cy1 + r * np.sin(angle)
+                    else:
+                        # Rear fisheye (second camera)
+                        # For back-to-back cameras, we need to flip the direction
+                        # Since the second camera is facing the opposite direction
+                        theta_adjusted = theta - np.pi if theta > 0 else theta + np.pi
+                        
+                        # Recalculate 3D position for the rear camera
+                        x3d_rear = np.sin(phi) * np.cos(theta_adjusted)
+                        y3d_rear = np.sin(phi) * np.sin(theta_adjusted)
+                        z3d_rear = np.cos(phi)
+                        
+                        # Project to fisheye coordinates
+                        r = radius * np.sqrt(x3d_rear*x3d_rear + z3d_rear*z3d_rear) / (y3d_rear + 1e-6)
+                        angle = np.arctan2(z3d_rear, x3d_rear)
+                        
+                        # Scale for field of view
+                        scale_factor = max_theta / (np.pi/2)
+                        r = r / scale_factor
+                        
+                        # Map to image coordinates (second camera)
+                        self.fisheye_xmap[y, x] = cx2 + r * np.cos(angle)
+                        self.fisheye_ymap[y, x] = cy2 + r * np.sin(angle)
+                else:
+                    # Original approach for side-by-side (not back-to-back) cameras
+                    if theta < 0:  # Left hemisphere
+                        # Calculate fisheye projection parameters
+                        r = radius * np.sqrt(x3d*x3d + z3d*z3d) / (y3d + 1e-6)
+                        angle = np.arctan2(z3d, x3d)
+                        
+                        # Scale for field of view
+                        scale_factor = max_theta / (np.pi/2)  # Adjust scaling for FOV
+                        r = r / scale_factor
+                        
+                        # Map to coordinates
+                        self.fisheye_xmap[y, x] = cx1 + r * np.cos(angle)
+                        self.fisheye_ymap[y, x] = cy1 + r * np.sin(angle)
+                    else:  # Right hemisphere
+                        # Calculate fisheye projection parameters
+                        r = radius * np.sqrt(x3d*x3d + z3d*z3d) / (y3d + 1e-6)
+                        angle = np.arctan2(z3d, x3d)
+                        
+                        # Scale for field of view
+                        scale_factor = max_theta / (np.pi/2)
+                        r = r / scale_factor
+                        
+                        # Map to coordinates
+                        self.fisheye_xmap[y, x] = cx2 + r * np.cos(angle)
+                        self.fisheye_ymap[y, x] = cy2 + r * np.sin(angle)
+        
+        # Optionally apply smoothing to the transition regions
+        if self.config.get('smooth_transition', True) and back_to_back:
+            blend_width = int(equ_w * 0.05)  # 5% of width for blending on each side
+            front_back_boundary1 = int(equ_w * 0.25)  # Around -π/2
+            front_back_boundary2 = int(equ_w * 0.75)  # Around π/2
+            
+            # Actual blending implementation would be done here
+            # This is a placeholder for a more advanced blending algorithm
         
         # Convert maps to correct format for remap
         self.fisheye_xmap = self.fisheye_xmap.astype(np.float32)
@@ -283,7 +374,10 @@ class WebDebugFisheyeCamera(Camera):
                     (padding, padding + 2*line_height), font, 0.6, (255, 255, 0), 2)
         cv2.putText(debug_frame, f"Radius Scale: {self.config.get('radius_scale'):.2f}", 
                     (padding, padding + 3*line_height), font, 0.6, (255, 255, 0), 2)
-        cv2.putText(debug_frame, f"FOV: {self.config.get('field_of_view')}°, Overlap: {self.config.get('fisheye_overlap')}°", 
+        
+        # Add camera configuration
+        back_to_back = "Back-to-back" if self.config.get('back_to_back', True) else "Side-by-side"
+        cv2.putText(debug_frame, f"Mode: {back_to_back}, FOV: {self.config.get('field_of_view')}°",
                     (padding, padding + 4*line_height), font, 0.6, (255, 255, 0), 2)
         
         # Create composite view: original frame on top, equirectangular on bottom
@@ -539,9 +633,13 @@ def get_status():
             'cy1': camera.config.get('cy1', 360),
             'cx2': camera.config.get('cx2', 1080),
             'cy2': camera.config.get('cy2', 360),
-            'radius_scale': camera.config.get('radius_scale', 0.9),
+            'radius_scale': camera.config.get('radius_scale', 1.2),
             'field_of_view': camera.config.get('field_of_view', 220),
-            'fisheye_overlap': camera.config.get('fisheye_overlap', 10)
+            'fisheye_overlap': camera.config.get('fisheye_overlap', 10),
+            'back_to_back': camera.config.get('back_to_back', True),
+            'smooth_transition': camera.config.get('smooth_transition', True),
+            'vertical_flip': camera.config.get('vertical_flip', False),
+            'horizontal_flip': camera.config.get('horizontal_flip', False)
         }
         debug_mode = camera.debug_mode
     
