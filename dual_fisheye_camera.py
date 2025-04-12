@@ -64,7 +64,7 @@ class DualFisheyeCamera(Camera):
         self.calibration_initialized = False
     
     def _create_fisheye_maps(self):
-        """Create mapping for fisheye to equirectangular conversion"""
+        """Create mapping for fisheye to equirectangular conversion - optimized for 220-degree camera"""
         # Only create maps if not already initialized
         if self.calibration_initialized:
             return
@@ -74,7 +74,7 @@ class DualFisheyeCamera(Camera):
         height = self.config['height']
         
         # Create maps
-        self.logger.info(f"Creating fisheye mapping with dimensions {width}x{height}")
+        self.logger.info(f"Creating fisheye mapping with dimensions {width}x{height} for {self.config.get('field_of_view', 220)}° camera")
         
         # Create destination map
         equ_h = int(height * self.config.get('equ_height_ratio', 0.5))
@@ -92,51 +92,142 @@ class DualFisheyeCamera(Camera):
         
         # Calculate radius for fisheye lens
         radius = min(cx1, cy1) if cx1 < cx2 else min(width - cx2, cy2)
-        radius = int(radius * self.config.get('radius_scale', 0.9))
+        radius = int(radius * self.config.get('radius_scale', 1.2))
+        
+        # Get field of view and overlap parameters
+        fov = np.radians(self.config.get('field_of_view', 220))  # 220° camera in radians
+        overlap = np.radians(self.config.get('fisheye_overlap', 10))  # Overlap region in radians
+        
+        # Calculate maximum theta angle based on field of view
+        max_theta = fov / 2
         
         # Create maps
         for y in range(equ_h):
             for x in range(equ_w):
                 # Convert equirectangular coordinates to spherical
-                theta = (x / equ_w) * 2 * np.pi
-                phi = (y / equ_h) * np.pi
+                theta = (x / equ_w) * 2 * np.pi - np.pi  # -pi to pi
+                phi = (y / equ_h) * np.pi                # 0 to pi
                 
                 # Convert spherical to 3D Cartesian
                 x3d = np.sin(phi) * np.cos(theta)
                 y3d = np.sin(phi) * np.sin(theta)
                 z3d = np.cos(phi)
                 
+                # Calculate angle from center for determining which fisheye to use
+                angle_from_center = np.abs(theta)
+                
+                # Transition zone for blending (in overlap region)
+                transition_start = max_theta - overlap
+                transition_end = max_theta
+                
                 # Determine which fisheye to use based on theta
-                # Front fisheye for -pi/2 to pi/2, rear fisheye for the rest
-                if -np.pi/2 <= theta <= np.pi/2:
+                # Adjusted for 220° FOV
+                if angle_from_center <= transition_start:
                     # Front fisheye (left in the dual fisheye image)
-                    # Project 3D point to fisheye image
-                    r = radius * np.sqrt(x3d*x3d + z3d*z3d) / (y3d + 1e-6)
-                    angle = np.arctan2(z3d, x3d)
-                    
-                    # Map to image coordinates
-                    self.fisheye_xmap[y, x] = cx1 + r * np.cos(angle)
-                    self.fisheye_ymap[y, x] = cy1 + r * np.sin(angle)
+                    if theta < 0:
+                        # Left half of front fisheye
+                        r = radius * np.sqrt(x3d*x3d + z3d*z3d) / (y3d + 1e-6)
+                        angle = np.arctan2(z3d, x3d)
+                        
+                        # Map to image coordinates with 220° FOV adjustment
+                        scale_factor = max_theta / (np.pi/2)  # Adjust scaling for 220° (default fisheye is 180°)
+                        r = r / scale_factor
+                        
+                        self.fisheye_xmap[y, x] = cx1 + r * np.cos(angle)
+                        self.fisheye_ymap[y, x] = cy1 + r * np.sin(angle)
+                    else:
+                        # Right half of front fisheye
+                        r = radius * np.sqrt(x3d*x3d + z3d*z3d) / (y3d + 1e-6)
+                        angle = np.arctan2(z3d, x3d)
+                        
+                        # Map to image coordinates with 220° FOV adjustment
+                        scale_factor = max_theta / (np.pi/2)  # Adjust scaling for 220° (default fisheye is 180°)
+                        r = r / scale_factor
+                        
+                        self.fisheye_xmap[y, x] = cx2 + r * np.cos(angle)
+                        self.fisheye_ymap[y, x] = cy2 + r * np.sin(angle)
+                elif angle_from_center >= transition_end:
+                    # Rear fisheye
+                    if theta < 0:
+                        # Left half of rear fisheye
+                        # Adjust 3D point for rear fisheye
+                        x3d = -x3d
+                        y3d = -y3d
+                        
+                        # Project 3D point to fisheye image
+                        r = radius * np.sqrt(x3d*x3d + z3d*z3d) / (y3d + 1e-6)
+                        angle = np.arctan2(z3d, x3d)
+                        
+                        # Map to image coordinates with 220° FOV adjustment
+                        scale_factor = max_theta / (np.pi/2)  # Adjust scaling for 220° (default fisheye is 180°)
+                        r = r / scale_factor
+                        
+                        self.fisheye_xmap[y, x] = cx2 + r * np.cos(angle)
+                        self.fisheye_ymap[y, x] = cy2 + r * np.sin(angle)
+                    else:
+                        # Right half of rear fisheye
+                        # Adjust 3D point for rear fisheye
+                        x3d = -x3d
+                        y3d = -y3d
+                        
+                        # Project 3D point to fisheye image
+                        r = radius * np.sqrt(x3d*x3d + z3d*z3d) / (y3d + 1e-6)
+                        angle = np.arctan2(z3d, x3d)
+                        
+                        # Map to image coordinates with 220° FOV adjustment
+                        scale_factor = max_theta / (np.pi/2)  # Adjust scaling for 220° (default fisheye is 180°)
+                        r = r / scale_factor
+                        
+                        self.fisheye_xmap[y, x] = cx1 + r * np.cos(angle)
+                        self.fisheye_ymap[y, x] = cy1 + r * np.sin(angle)
                 else:
-                    # Rear fisheye (right in the dual fisheye image)
+                    # Transition/blend zone - calculate blend factor
+                    blend = (angle_from_center - transition_start) / (transition_end - transition_start)
+                    
+                    # Calculate mapping for both fisheyes
+                    # Front fisheye
+                    r_front = radius * np.sqrt(x3d*x3d + z3d*z3d) / (y3d + 1e-6)
+                    angle_front = np.arctan2(z3d, x3d)
+                    
                     # Adjust 3D point for rear fisheye
-                    x3d = -x3d
-                    y3d = -y3d
+                    x3d_rear = -x3d
+                    y3d_rear = -y3d
                     
-                    # Project 3D point to fisheye image
-                    r = radius * np.sqrt(x3d*x3d + z3d*z3d) / (y3d + 1e-6)
-                    angle = np.arctan2(z3d, x3d)
+                    # Rear fisheye
+                    r_rear = radius * np.sqrt(x3d_rear*x3d_rear + z3d*z3d) / (y3d_rear + 1e-6)
+                    angle_rear = np.arctan2(z3d, x3d_rear)
                     
-                    # Map to image coordinates
-                    self.fisheye_xmap[y, x] = cx2 + r * np.cos(angle)
-                    self.fisheye_ymap[y, x] = cy2 + r * np.sin(angle)
+                    # Map to image coordinates with 220° FOV adjustment for both
+                    scale_factor = max_theta / (np.pi/2)
+                    r_front = r_front / scale_factor
+                    r_rear = r_rear / scale_factor
+                    
+                    # Apply blending
+                    if theta < 0:
+                        # Left side
+                        x_front = cx1 + r_front * np.cos(angle_front)
+                        y_front = cy1 + r_front * np.sin(angle_front)
+                        
+                        x_rear = cx2 + r_rear * np.cos(angle_rear)
+                        y_rear = cy2 + r_rear * np.sin(angle_rear)
+                    else:
+                        # Right side
+                        x_front = cx2 + r_front * np.cos(angle_front)
+                        y_front = cy2 + r_front * np.sin(angle_front)
+                        
+                        x_rear = cx1 + r_rear * np.cos(angle_rear)
+                        y_rear = cy1 + r_rear * np.sin(angle_rear)
+                    
+                    # Blend the two fisheye mappings
+                    self.fisheye_xmap[y, x] = x_front * (1 - blend) + x_rear * blend
+                    self.fisheye_ymap[y, x] = y_front * (1 - blend) + y_rear * blend
         
         # Convert maps to correct format for remap
         self.fisheye_xmap = self.fisheye_xmap.astype(np.float32)
         self.fisheye_ymap = self.fisheye_ymap.astype(np.float32)
         
         self.calibration_initialized = True
-        self.logger.info("Fisheye calibration maps created successfully")
+        self.logger.info(f"Fisheye calibration maps created successfully for {self.config.get('field_of_view', 220)}° camera")
     
     def start(self):
         """Start camera capture - override parent method"""
