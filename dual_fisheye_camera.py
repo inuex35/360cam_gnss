@@ -19,8 +19,6 @@ import subprocess
 from datetime import datetime
 from threading import Thread, Event
 import numpy as np
-from picamera2 import Picamera2
-import io
 
 from config import DUAL_FISHEYE_CONFIG, STORAGE_CONFIG, APP_CONFIG
 
@@ -164,20 +162,24 @@ class DualFisheyeCamera:
     def open(self):
         """Open camera"""
         try:
-            # Initialize the Picamera2
-            self.camera = Picamera2()
+            # Initialize the OpenCV VideoCapture
+            camera_index = self.config.get('camera_index', 0)
+            self.camera = cv2.VideoCapture(camera_index)
             
             # Configure camera
-            config = self.camera.create_preview_configuration(
-                main={"size": (self.config['width'], self.config['height'])},
-                controls={"FrameRate": self.config['fps']}
-            )
-            self.camera.configure(config)
+            self.camera.set(cv2.CAP_PROP_FRAME_WIDTH, self.config['width'])
+            self.camera.set(cv2.CAP_PROP_FRAME_HEIGHT, self.config['height'])
+            self.camera.set(cv2.CAP_PROP_FPS, self.config['fps'])
+            
+            # Check if camera opened successfully
+            if not self.camera.isOpened():
+                self.logger.error(f"Failed to open camera at index {camera_index}")
+                return False
             
             # Give camera some time to initialize
             time.sleep(2)
             
-            self.logger.info(f"Opened Picamera2: {self.config['width']}x{self.config['height']} @ {self.config['fps']}fps")
+            self.logger.info(f"Opened OpenCV camera: {self.config['width']}x{self.config['height']} @ {self.config['fps']}fps")
             return True
         except Exception as e:
             self.logger.error(f"Camera initialization error: {str(e)}")
@@ -195,9 +197,6 @@ class DualFisheyeCamera:
         
         self.running = True
         self.stop_event.clear()
-        
-        # Start camera
-        self.camera.start()
         
         # Start capture thread
         self.capture_thread = Thread(target=self._capture_loop)
@@ -224,8 +223,7 @@ class DualFisheyeCamera:
             self.process_thread.join(timeout=3.0)
         
         if self.camera:
-            self.camera.stop()
-            self.camera.close()
+            self.camera.release()
             self.camera = None
         
         self.running = False
@@ -235,11 +233,17 @@ class DualFisheyeCamera:
         """Frame capture loop from camera for real-time display"""
         try:
             while not self.stop_event.is_set():
-                # Get frame from camera
-                self.frame = self.camera.capture_array("main")
-                
-                # Add timestamp and other info to frame
-                self._add_overlay_info(self.frame)
+                if self.camera and self.camera.isOpened():
+                    # Get frame from camera
+                    ret, frame = self.camera.read()
+                    
+                    if ret:
+                        self.frame = frame
+                        
+                        # Add timestamp and other info to frame
+                        self._add_overlay_info(self.frame)
+                    else:
+                        self.logger.warning("Failed to read frame from camera")
                 
                 # Small delay to match framerate
                 time.sleep(0.01)
