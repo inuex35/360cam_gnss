@@ -20,11 +20,6 @@ sudo apt-get update
 sudo apt-get install -y python3-picamera python3-opencv gpsd gpsd-clients python3-pip mp4box
 ```
 
-### PiCamera2のインストール（デュアルフィッシュアイカメラ用）
-```bash
-pip3 install picamera2
-```
-
 ### Python依存関係（Python 3.7用）
 ```bash
 pip3 install -r py37_requirements.txt
@@ -74,6 +69,18 @@ http://ラズパイのIPアドレス:8081
 
 ## デュアルフィッシュアイカメラの全天球変換について
 デュアルフィッシュアイカメラのサポートにより、2つのフィッシュアイレンズ画像をリアルタイムで全天球（equirectangular）形式に変換して表示・録画できます。この変換処理はOpenCVのremap関数を使用して実装されています。設定パラメータは`config.py`の`DUAL_FISHEYE_CONFIG`セクションで調整可能です。
+
+### デュアルフィッシュアイカメラの設定
+デュアルフィッシュアイカメラの利用には、OpenCVを使用したUSBカメラ等の接続が必要です。カメラのインデックスなどは`config.py`ファイルの以下の設定で変更できます：
+
+```python
+DUAL_FISHEYE_CONFIG = {
+    'camera_index': 0,                # カメラデバイスのインデックス（0: デフォルト、1: 外付けカメラなど）
+    'width': 1440,                    # 画像の幅
+    'height': 720,                    # 画像の高さ
+    ...
+}
+```
 
 ## ファイル構成
 - `camera.py` - ステレオカメラクラスの実装
