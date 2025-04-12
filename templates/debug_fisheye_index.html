@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>360° フィッシュアイカメラ デバッグモード</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+            color: #333;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        h1 {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        .status {
+            display: flex;
+            margin-bottom: 10px;
+        }
+        .status-item {
+            margin-right: 20px;
+            padding: 5px;
+            border-radius: 4px;
+        }
+        .preview {
+            border: 2px solid #444;
+            border-radius: 8px;
+            background-color: #000;
+            padding: 10px;
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        .preview img {
+            max-width: 100%;
+            height: auto;
+            border-radius: 4px;
+        }
+        .controls {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        button {
+            padding: 10px 15px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+            min-width: 120px;
+        }
+        .btn-start {
+            background-color: #4CAF50;
+            color: white;
+        }
+        .btn-stop {
+            background-color: #f44336;
+            color: white;
+        }
+        .btn-record {
+            background-color: #f44336;
+            color: white;
+        }
+        .btn-photo {
+            background-color: #2196F3;
+            color: white;
+        }
+        .btn-mode {
+            background-color: #9C27B0;
+            color: white;
+        }
+        .btn-save {
+            background-color: #FF9800;
+            color: white;
+        }
+        .parameter-section {
+            background-color: #fff;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        .parameter-section h2 {
+            margin-top: 0;
+            margin-bottom: 15px;
+            color: #333;
+        }
+        .parameter-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+        }
+        .parameter-item {
+            margin-bottom: 15px;
+        }
+        .parameter-item label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        .parameter-item input[type="range"] {
+            width: 100%;
+        }
+        .parameter-item .value-display {
+            text-align: center;
+            margin-top: 5px;
+            font-size: 14px;
+            color: #666;
+        }
+        .mode-selector {
+            display: flex;
+            justify-content: center;
+            margin-bottom: 20px;
+        }
+        .mode-button {
+            padding: 8px 12px;
+            margin: 0 5px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            background-color: #f0f0f0;
+            cursor: pointer;
+        }
+        .mode-button.active {
+            background-color: #4CAF50;
+            color: white;
+            border-color: #4CAF50;
+        }
+        .notification {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            padding: 10px 20px;
+            background-color: #333;
+            color: white;
+            border-radius: 4px;
+            display: none;
+            max-width: 300px;
+        }
+        .disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        @media (max-width: 768px) {
+            .parameter-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>360° フィッシュアイカメラ デバッグモード</h1>
+        
+        <div class="status">
+            <div class="status-item" id="camera-status">カメラ: 停止中</div>
+            <div class="status-item" id="recording-status">録画: 停止中</div>
+        </div>
+        
+        <div class="mode-selector">
+            <div class="mode-button" id="mode-0">元映像</div>
+            <div class="mode-button" id="mode-1">全天球変換</div>
+            <div class="mode-button active" id="mode-2">デバッグビュー</div>
+        </div>
+        
+        <div class="preview">
+            <img id="camera-preview" src="/video_feed" alt="カメラプレビュー">
+        </div>
+        
+        <div class="controls">
+            <button id="btn-start-camera" class="btn-start">カメラ起動</button>
+            <button id="btn-stop-camera" class="btn-stop" disabled>カメラ停止</button>
+            <button id="btn-toggle-recording" class="btn-record" disabled>録画開始</button>
+            <button id="btn-capture-photo" class="btn-photo" disabled>写真撮影</button>
+            <button id="btn-save-params" class="btn-save" disabled>パラメータ保存</button>
+        </div>
+        
+        <div class="parameter-section">
+            <h2>フィッシュアイパラメータ調整</h2>
+            <div class="parameter-grid">
+                <div class="parameter-item">
+                    <label for="cx1">左カメラ中心X (CX1)</label>
+                    <input type="range" id="cx1" min="0" max="1440" value="360" step="1">
+                    <div class="value-display" id="cx1-value">360</div>
+                </div>
+                <div class="parameter-item">
+                    <label for="cy1">左カメラ中心Y (CY1)</label>
+                    <input type="range" id="cy1" min="0" max="720" value="360" step="1">
+                    <div class="value-display" id="cy1-value">360</div>
+                </div>
+                <div class="parameter-item">
+                    <label for="cx2">右カメラ中心X (CX2)</label>
+                    <input type="range" id="cx2" min="0" max="1440" value="1080" step="1">
+                    <div class="value-display" id="cx2-value">1080</div>
+                </div>
+                <div class="parameter-item">
+                    <label for="cy2">右カメラ中心Y (CY2)</label>
+                    <input type="range" id="cy2" min="0" max="720" value="360" step="1">
+                    <div class="value-display" id="cy2-value">360</div>
+                </div>
+                <div class="parameter-item">
+                    <label for="radius-scale">半径スケール (Radius Scale)</label>
+                    <input type="range" id="radius-scale" min="0.1" max="2.0" value="0.9" step="0.05">
+                    <div class="value-display" id="radius-scale-value">0.90</div>
+                </div>
+                <div class="parameter-item">
+                    <label for="field-of-view">視野角 (Field of View °)</label>
+                    <input type="range" id="field-of-view" min="160" max="240" value="220" step="5">
+                    <div class="value-display" id="field-of-view-value">220°</div>
+                </div>
+                <div class="parameter-item">
+                    <label for="fisheye-overlap">重複角度 (Overlap °)</label>
+                    <input type="range" id="fisheye-overlap" min="0" max="30" value="10" step="1">
+                    <div class="value-display" id="fisheye-overlap-value">10°</div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="notification" id="notification"></div>
+    
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // Elements
+            const cameraStatus = document.getElementById('camera-status');
+            const recordingStatus = document.getElementById('recording-status');
+            const startButton = document.getElementById('btn-start-camera');
+            const stopButton = document.getElementById('btn-stop-camera');
+            const recordButton = document.getElementById('btn-toggle-recording');
+            const photoButton = document.getElementById('btn-capture-photo');
+            const saveButton = document.getElementById('btn-save-params');
+            const notification = document.getElementById('notification');
+            
+            // Mode buttons
+            const modeButtons = [
+                document.getElementById('mode-0'),
+                document.getElementById('mode-1'),
+                document.getElementById('mode-2')
+            ];
+            
+            // Parameters
+            const parameterControls = {
+                'cx1': document.getElementById('cx1'),
+                'cy1': document.getElementById('cy1'),
+                'cx2': document.getElementById('cx2'),
+                'cy2': document.getElementById('cy2'),
+                'radius_scale': document.getElementById('radius-scale'),
+                'field_of_view': document.getElementById('field-of-view'),
+                'fisheye_overlap': document.getElementById('fisheye-overlap')
+            };
+            
+            // Value displays
+            const valueDisplays = {
+                'cx1': document.getElementById('cx1-value'),
+                'cy1': document.getElementById('cy1-value'),
+                'cx2': document.getElementById('cx2-value'),
+                'cy2': document.getElementById('cy2-value'),
+                'radius_scale': document.getElementById('radius-scale-value'),
+                'field_of_view': document.getElementById('field-of-view-value'),
+                'fisheye_overlap': document.getElementById('fisheye-overlap-value')
+            };
+            
+            // Throttle function to limit parameter updates
+            const throttle = (func, delay) => {
+                let lastCall = 0;
+                return function(...args) {
+                    const now = new Date().getTime();
+                    if (now - lastCall < delay) {
+                        return;
+                    }
+                    lastCall = now;
+                    return func(...args);
+                };
+            };
+            
+            // Update status
+            function updateStatus() {
+                fetch('/api/status')
+                    .then(response => response.json())
+                    .then(data => {
+                        // Update camera status
+                        if (data.camera === 'running') {
+                            cameraStatus.textContent = 'カメラ: 動作中';
+                            cameraStatus.style.color = 'green';
+                            startButton.disabled = true;
+                            stopButton.disabled = false;
+                            recordButton.disabled = false;
+                            photoButton.disabled = false;
+                            saveButton.disabled = false;
+                            
+                            // Enable parameter controls
+                            for (const key in parameterControls) {
+                                parameterControls[key].disabled = false;
+                            }
+                        } else {
+                            cameraStatus.textContent = 'カメラ: 停止中';
+                            cameraStatus.style.color = 'red';
+                            startButton.disabled = false;
+                            stopButton.disabled = true;
+                            recordButton.disabled = true;
+                            photoButton.disabled = true;
+                            saveButton.disabled = true;
+                            
+                            // Disable parameter controls
+                            for (const key in parameterControls) {
+                                parameterControls[key].disabled = true;
+                            }
+                        }
+                        
+                        // Update recording status
+                        if (data.recording) {
+                            recordingStatus.textContent = '録画: 録画中';
+                            recordingStatus.style.color = 'red';
+                            recordButton.textContent = '録画停止';
+                            recordButton.style.backgroundColor = '#2196F3';
+                        } else {
+                            recordingStatus.textContent = '録画: 停止中';
+                            recordingStatus.style.color = '';
+                            recordButton.textContent = '録画開始';
+                            recordButton.style.backgroundColor = '#f44336';
+                        }
+                        
+                        // Update debug mode
+                        modeButtons.forEach((button, index) => {
+                            button.classList.toggle('active', index === data.debug_mode);
+                        });
+                        
+                        // Update parameter values
+                        if (data.parameters && Object.keys(data.parameters).length > 0) {
+                            for (const key in data.parameters) {
+                                if (parameterControls[key]) {
+                                    parameterControls[key].value = data.parameters[key];
+                                    updateValueDisplay(key, data.parameters[key]);
+                                }
+                            }
+                        }
+                    })
+                    .catch(error => console.error('Status error:', error));
+            }
+            
+            // Update value display for parameter
+            function updateValueDisplay(key, value) {
+                if (valueDisplays[key]) {
+                    if (key === 'radius_scale') {
+                        valueDisplays[key].textContent = value.toFixed(2);
+                    } else if (key === 'field_of_view' || key === 'fisheye_overlap') {
+                        valueDisplays[key].textContent = value + '°';
+                    } else {
+                        valueDisplays[key].textContent = value;
+                    }
+                }
+            }
+            
+            // Show notification
+            function showNotification(message, timeout = 3000) {
+                notification.textContent = message;
+                notification.style.display = 'block';
+                
+                setTimeout(() => {
+                    notification.style.display = 'none';
+                }, timeout);
+            }
+            
+            // API request helper
+            function apiRequest(endpoint, data = {}, method = 'POST', successCallback) {
+                fetch(endpoint, {
+                    method: method,
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: Object.keys(data).length ? JSON.stringify(data) : undefined
+                })
+                .then(response => response.json())
+                .then(data => {
+                    showNotification(data.message);
+                    if (successCallback) successCallback(data);
+                    updateStatus();
+                })
+                .catch(error => {
+                    console.error('API error:', error);
+                    showNotification('エラーが発生しました', 5000);
+                });
+            }
+            
+            // Update parameters
+            const updateParameters = throttle(() => {
+                const params = {};
+                for (const key in parameterControls) {
+                    params[key] = parseFloat(parameterControls[key].value);
+                }
+                
+                apiRequest('/api/update_parameters', params);
+                
+                // Update value displays
+                for (const key in params) {
+                    updateValueDisplay(key, params[key]);
+                }
+            }, 200);  // Throttle to once per 200ms
+            
+            // Event listeners
+            startButton.addEventListener('click', function() {
+                apiRequest('/api/start_camera');
+            });
+            
+            stopButton.addEventListener('click', function() {
+                apiRequest('/api/stop_camera');
+            });
+            
+            recordButton.addEventListener('click', function() {
+                apiRequest('/api/toggle_recording');
+            });
+            
+            photoButton.addEventListener('click', function() {
+                apiRequest('/api/capture_photo');
+            });
+            
+            saveButton.addEventListener('click', function() {
+                apiRequest('/api/save_parameters');
+            });
+            
+            // Mode buttons
+            modeButtons.forEach((button, index) => {
+                button.addEventListener('click', function() {
+                    apiRequest('/api/set_debug_mode', { mode: index });
+                });
+            });
+            
+            // Parameter change events
+            for (const key in parameterControls) {
+                parameterControls[key].addEventListener('input', function() {
+                    updateValueDisplay(key, parseFloat(this.value));
+                });
+                
+                parameterControls[key].addEventListener('change', updateParameters);
+            }
+            
+            // Initial status update
+            updateStatus();
+            
+            // Periodic status updates
+            setInterval(updateStatus, 5000);
+        });
+    </script>
+</body>
+</html>
