@@ -51,6 +51,12 @@ DUAL_FISHEYE_CONFIG = {
     'equ_height_ratio': 0.5,          # 全天球出力の高さ比率
     'field_of_view': 220,             # カメラの視野角（度）
     'fisheye_overlap': 10,            # フィッシュアイ画像の重複領域（度）
+    
+    # カメラ構成: back-to-back (背中合わせ、180度反対方向) vs side-by-side (左右横並び)
+    'back_to_back': True,             # 背中合わせのカメラ構成（180度反対方向）
+    'smooth_transition': True,        # 前後のレンズ間の遷移を滑らかにする
+    'vertical_flip': False,           # 垂直方向に反転（カメラが上下逆の場合）
+    'horizontal_flip': False,         # 水平方向に反転（カメラが左右逆の場合）
 }
 
 # GNSS settings
