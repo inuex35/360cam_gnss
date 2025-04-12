@@ -28,6 +28,30 @@ CAMERA_CONFIG = {
     'window_title': '360cam GNSS - Stereoscopic View'  # Window title
 }
 
+# Dual fisheye camera settings
+DUAL_FISHEYE_CONFIG = {
+    'camera_index': 0,                # カメラデバイスのインデックス（0: デフォルト、1: 外付けカメラなど）
+    'width': 1440,                    # Image width
+    'height': 720,                    # Image height
+    'fps': 30,                        # Frame rate
+    'codec': 'h264',                  # Video codec
+    'extension': '.mp4',              # Video file extension
+    'photo_extension': '.jpg',        # Photo file extension
+    'preview_width': 1024,            # Preview window width
+    'preview_height': 512,            # Preview window height
+    'display_mode': 'equirectangular', # Initial display mode: 'fisheye', 'equirectangular'
+    'delete_h264_after_conversion': True,  # Delete .h264 files after conversion to .mp4
+    'window_title': '360cam GNSS - Dual Fisheye',  # Window title
+    
+    # Fisheye calibration parameters
+    'cx1': 360,                       # Center X for left fisheye
+    'cy1': 360,                       # Center Y for left fisheye
+    'cx2': 1080,                      # Center X for right fisheye
+    'cy2': 360,                       # Center Y for right fisheye
+    'radius_scale': 0.9,              # Scale factor for fisheye radius
+    'equ_height_ratio': 0.5,          # Height ratio for equirectangular output
+}
+
 # GNSS settings
 GNSS_CONFIG = {
     'port': '/dev/ttyAMA0',           # Serial port
