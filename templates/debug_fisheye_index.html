@@ -114,6 +114,55 @@
             font-size: 14px;
             color: #666;
         }
+        .switch-container {
+            display: flex;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+        .switch-container label {
+            margin-right: 10px;
+            font-weight: bold;
+        }
+        /* Toggle switch styles */
+        .switch {
+            position: relative;
+            display: inline-block;
+            width: 60px;
+            height: 34px;
+        }
+        .switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: #ccc;
+            transition: .4s;
+            border-radius: 34px;
+        }
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 26px;
+            width: 26px;
+            left: 4px;
+            bottom: 4px;
+            background-color: white;
+            transition: .4s;
+            border-radius: 50%;
+        }
+        input:checked + .slider {
+            background-color: #2196F3;
+        }
+        input:checked + .slider:before {
+            transform: translateX(26px);
+        }
         .mode-selector {
             display: flex;
             justify-content: center;
@@ -183,6 +232,7 @@
         
         <div class="parameter-section">
             <h2>フィッシュアイパラメータ調整</h2>
+            
             <div class="parameter-grid">
                 <div class="parameter-item">
                     <label for="cx1">左カメラ中心X (CX1)</label>
@@ -206,8 +256,8 @@
                 </div>
                 <div class="parameter-item">
                     <label for="radius-scale">半径スケール (Radius Scale)</label>
-                    <input type="range" id="radius-scale" min="0.1" max="2.0" value="0.9" step="0.05">
-                    <div class="value-display" id="radius-scale-value">0.90</div>
+                    <input type="range" id="radius-scale" min="0.1" max="2.0" value="1.2" step="0.05">
+                    <div class="value-display" id="radius-scale-value">1.20</div>
                 </div>
                 <div class="parameter-item">
                     <label for="field-of-view">視野角 (Field of View °)</label>
@@ -219,6 +269,39 @@
                     <input type="range" id="fisheye-overlap" min="0" max="30" value="10" step="1">
                     <div class="value-display" id="fisheye-overlap-value">10°</div>
                 </div>
+            </div>
+            
+            <h3>カメラ構成</h3>
+            <div class="switch-container">
+                <label for="back-to-back">背中合わせカメラ (Back-to-back)</label>
+                <label class="switch">
+                    <input type="checkbox" id="back-to-back" checked>
+                    <span class="slider"></span>
+                </label>
+            </div>
+            
+            <div class="switch-container">
+                <label for="smooth-transition">滑らかな遷移 (Smooth Transition)</label>
+                <label class="switch">
+                    <input type="checkbox" id="smooth-transition" checked>
+                    <span class="slider"></span>
+                </label>
+            </div>
+            
+            <div class="switch-container">
+                <label for="vertical-flip">垂直反転 (Vertical Flip)</label>
+                <label class="switch">
+                    <input type="checkbox" id="vertical-flip">
+                    <span class="slider"></span>
+                </label>
+            </div>
+            
+            <div class="switch-container">
+                <label for="horizontal-flip">水平反転 (Horizontal Flip)</label>
+                <label class="switch">
+                    <input type="checkbox" id="horizontal-flip">
+                    <span class="slider"></span>
+                </label>
             </div>
         </div>
     </div>
@@ -244,7 +327,7 @@
                 document.getElementById('mode-2')
             ];
             
-            // Parameters
+            // Parameters - sliders
             const parameterControls = {
                 'cx1': document.getElementById('cx1'),
                 'cy1': document.getElementById('cy1'),
@@ -253,6 +336,14 @@
                 'radius_scale': document.getElementById('radius-scale'),
                 'field_of_view': document.getElementById('field-of-view'),
                 'fisheye_overlap': document.getElementById('fisheye-overlap')
+            };
+            
+            // Parameters - switches
+            const parameterSwitches = {
+                'back_to_back': document.getElementById('back-to-back'),
+                'smooth_transition': document.getElementById('smooth-transition'),
+                'vertical_flip': document.getElementById('vertical-flip'),
+                'horizontal_flip': document.getElementById('horizontal-flip')
             };
             
             // Value displays
@@ -298,6 +389,11 @@
                             for (const key in parameterControls) {
                                 parameterControls[key].disabled = false;
                             }
+                            
+                            // Enable parameter switches
+                            for (const key in parameterSwitches) {
+                                parameterSwitches[key].disabled = false;
+                            }
                         } else {
                             cameraStatus.textContent = 'カメラ: 停止中';
                             cameraStatus.style.color = 'red';
@@ -310,6 +406,11 @@
                             // Disable parameter controls
                             for (const key in parameterControls) {
                                 parameterControls[key].disabled = true;
+                            }
+                            
+                            // Disable parameter switches
+                            for (const key in parameterSwitches) {
+                                parameterSwitches[key].disabled = true;
                             }
                         }
                         
@@ -333,10 +434,18 @@
                         
                         // Update parameter values
                         if (data.parameters && Object.keys(data.parameters).length > 0) {
-                            for (const key in data.parameters) {
-                                if (parameterControls[key]) {
+                            // Update sliders
+                            for (const key in parameterControls) {
+                                if (data.parameters[key] !== undefined) {
                                     parameterControls[key].value = data.parameters[key];
                                     updateValueDisplay(key, data.parameters[key]);
+                                }
+                            }
+                            
+                            // Update switches
+                            for (const key in parameterSwitches) {
+                                if (data.parameters[key] !== undefined) {
+                                    parameterSwitches[key].checked = data.parameters[key];
                                 }
                             }
                         }
@@ -388,18 +497,31 @@
                 });
             }
             
-            // Update parameters
-            const updateParameters = throttle(() => {
+            // Collect all parameters
+            function collectParameters() {
                 const params = {};
+                
+                // Collect slider parameters
                 for (const key in parameterControls) {
                     params[key] = parseFloat(parameterControls[key].value);
                 }
                 
+                // Collect switch parameters
+                for (const key in parameterSwitches) {
+                    params[key] = parameterSwitches[key].checked;
+                }
+                
+                return params;
+            }
+            
+            // Update parameters
+            const updateParameters = throttle(() => {
+                const params = collectParameters();
                 apiRequest('/api/update_parameters', params);
                 
-                // Update value displays
-                for (const key in params) {
-                    updateValueDisplay(key, params[key]);
+                // Update value displays for sliders
+                for (const key in parameterControls) {
+                    updateValueDisplay(key, parseFloat(parameterControls[key].value));
                 }
             }, 200);  // Throttle to once per 200ms
             
@@ -431,13 +553,18 @@
                 });
             });
             
-            // Parameter change events
+            // Parameter change events - sliders
             for (const key in parameterControls) {
                 parameterControls[key].addEventListener('input', function() {
                     updateValueDisplay(key, parseFloat(this.value));
                 });
                 
                 parameterControls[key].addEventListener('change', updateParameters);
+            }
+            
+            // Parameter change events - switches
+            for (const key in parameterSwitches) {
+                parameterSwitches[key].addEventListener('change', updateParameters);
             }
             
             // Initial status update
